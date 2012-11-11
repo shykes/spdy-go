@@ -8,6 +8,7 @@ import (
     "log"
     "bufio"
     "os"
+    "net"
     "net/http"
 )
 
@@ -62,6 +63,46 @@ func NewSession(writer io.Writer, reader io.Reader, server bool) (*Session, erro
 }
 
 
+/* A function which can be called when a new session is created */
+type SessionHandler func(*Session)
+
+
+/* Listen on a TCP port, and pass new connections to a handler */
+func ServeTCP(addr string, handler SessionHandler) {
+    debug("Listening to %s\n", addr)
+    listener, err := net.Listen("tcp", addr)
+    if err != nil {
+        log.Fatal(err)
+    }
+    for {
+        conn, err := listener.Accept()
+        if err != nil {
+            log.Fatal(err)
+        }
+        session, err := NewSession(conn, conn, true)
+        if err != nil {
+            log.Fatal(err)
+        }
+        go handler(session)
+    }
+}
+
+
+/* Connect to a remote tcp server and return an RPCClient object */
+
+func DialTCP(addr string) (*Session, error) {
+    debug("Connecting to %s\n", addr)
+    conn, err := net.Dial("tcp", addr)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return NewSession(conn, conn, false)
+}
+
+
+
+
+
 /*
 ** Compute the ID which should be used to open the next stream 
 ** 
@@ -108,7 +149,7 @@ func (session *Session) OpenStream(headers http.Header, onResponse StreamHandler
 }
 
 /* Send data on an open stream */
-func (session *Session) send_data(streamId uint32, data []byte) {
+func (session *Session) Send_data(streamId uint32, data []byte) {
     debug("Sending data: %s\n", data)
     err := session.WriteFrame(&spdy.DataFrame{
         StreamId:   streamId,
@@ -123,7 +164,7 @@ func (session *Session) send_data(streamId uint32, data []byte) {
 
 
 /* Listen for new frames and process them */
-func (session *Session) run(onRequest StreamHandler) {
+func (session *Session) Run(onRequest StreamHandler) {
     for {
         frame, err := session.ReadFrame()
         if err == io.EOF {
@@ -204,7 +245,7 @@ func (session *Session) ReplyStream(id uint32, headers http.Header, final bool) 
     })
 }
 
-func attach_reader(session *Session, reader *bufio.Reader, streamId uint32, _<-chan *[]byte) {
+func Attach_reader(session *Session, reader *bufio.Reader, streamId uint32, _<-chan *[]byte) {
     for {
         line, _, err := reader.ReadLine()
         if err == io.EOF {
@@ -224,7 +265,7 @@ func attach_reader(session *Session, reader *bufio.Reader, streamId uint32, _<-c
    debug("Received EOF from local input\n")
 }
 
-func attach_writer(_ *Session, writer *bufio.Writer, streamId uint32, stream <-chan *[]byte) {
+func Attach_writer(_ *Session, writer *bufio.Writer, streamId uint32, stream <-chan *[]byte) {
     for msg := range stream {
         writer.Write(*msg)
         writer.Flush()
