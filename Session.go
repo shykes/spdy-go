@@ -43,7 +43,7 @@ type Session struct {
 }
 
 /* A function which can be called when a new stream is created by the session's remote peer */
-type StreamHandler func(session *Session, id uint32, headers *LiveDB, stream <-chan *[]byte)
+type StreamHandler func(session *Session, id uint32, headers *http.Header, stream <-chan *[]byte)
 
 
 /* Create a new Session object */
@@ -150,7 +150,7 @@ func (session *Session) run(onRequest StreamHandler) {
                 debug("Opening new stream: %s\n", synframe.StreamId)
                 session.streams[synframe.StreamId] = make(chan *[]byte)
                 /* Send SYN_REPLY with basic headers before sending any data */
-                go onRequest(session, synframe.StreamId, LiveHeaders(&synframe.Headers), session.streams[synframe.StreamId])
+                go onRequest(session, synframe.StreamId, &synframe.Headers, session.streams[synframe.StreamId])
             } else {
                 debug("Warning: peer trying to open already open stream. Dropping\n")
             }
@@ -176,7 +176,7 @@ func (session *Session) run(onRequest StreamHandler) {
             }
             session.streams[id] = make(chan *[]byte)
             debug("Calling response handler for stream %d\n", id)
-            go onResponse(session, id, LiveHeaders(&synReplyFrame.Headers), session.streams[id])
+            go onResponse(session, id, &synReplyFrame.Headers, session.streams[id])
         }
     }
 }
@@ -192,7 +192,6 @@ func (session *Session) run(onRequest StreamHandler) {
 
 
 func (session *Session) ReplyStream(id uint32, headers http.Header, final bool) {
-    headers["X-gub-version"] = []string{PROTO_VERSION}
     var flags spdy.ControlFlags
     if final {
         debug("Setting FLAG_FIN to close stream %d\n", id)
@@ -232,25 +231,4 @@ func attach_writer(_ *Session, writer *bufio.Writer, streamId uint32, stream <-c
     }
     debug("Done reading from stream %d\n", streamId)
 }
-
-
-
-func LiveHeaders(headers *http.Header) *LiveDB {
-    db := NewLiveDB()
-    for key, value := range *headers {
-        db.Set(key, value)
-    }
-    return db
-}
-
-
-func SimpleHeaders(headers *http.Header) *map[string]string {
-    simple := make(map[string]string)
-    for key, value := range *headers {
-        simple[key] = value
-    }
-    return simple
-}
-
-
 
