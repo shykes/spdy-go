@@ -162,8 +162,12 @@ func (session *Session) Send_data(streamId uint32, data []byte) {
 
 
 
+/*
+** Session.Run(onRequest StreamHandler)
+**
+** Listen for new frames and process them. Inbound streams will be passed to `onRequest`.
+*/
 
-/* Listen for new frames and process them */
 func (session *Session) Run(onRequest StreamHandler) {
     for {
         frame, err := session.ReadFrame()
@@ -176,51 +180,67 @@ func (session *Session) Run(onRequest StreamHandler) {
         debug("Received frame: %s\n", frame)
         /* Did we receive a data frame? */
         if dframe, ok := frame.(*spdy.DataFrame); ok {
-            debug("Received data frame: %s\n", dframe)
-            stream, ok := session.streams[dframe.StreamId]
-            if ok {
-                stream <- &dframe.Data
-            } else {
-                debug("Warning: received data for non-open stream. Dropping\n")
-            }
+            session.onDataFrame(dframe)
         /* Did we receive a syn_stream control frame? */
         } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
-            debug("Received syn_stream frame for stream id=%d headers=%s\n", synframe.StreamId, synframe.Headers)
-            _, ok := session.streams[synframe.StreamId]
-            if !ok {
-                debug("Opening new stream: %s\n", synframe.StreamId)
-                session.streams[synframe.StreamId] = make(chan *[]byte)
-                /* Send SYN_REPLY with basic headers before sending any data */
-                go onRequest(session, synframe.StreamId, &synframe.Headers, session.streams[synframe.StreamId])
-            } else {
-                debug("Warning: peer trying to open already open stream. Dropping\n")
-            }
+            session.onSynStreamFrame(synframe, onRequest)
         /* Did we receive a syn_reply control frame */
         } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
-            id := synReplyFrame.StreamId
-            debug("Received syn_reply frame for stream id=%d\n", id)
-            if session.Server {
-                if id % 2 != 0 {
-                    debug("Warning: received reply for odd-numbered stream id %d. Dropping\n", id)
-                    continue
-                }
-            } else {
-                if id % 2 == 0 {
-                    debug("warning: received reply for even-numbered stream id. Dropping\n", id)
-                    continue
-                }
-            }
-            onResponse, ok := session.myStreams[id]
-            if !ok {
-                debug("Warning: received reply for stream id=%d but we didn't create it. Dropping\n", id)
-                continue
-            }
-            session.streams[id] = make(chan *[]byte)
-            debug("Calling response handler for stream %d\n", id)
-            go onResponse(session, id, &synReplyFrame.Headers, session.streams[id])
+            session.onSynReplyFrame(synReplyFrame)
         }
     }
 }
+
+/* Process a new DATA frame */
+func (session *Session) onDataFrame(dframe *spdy.DataFrame) {
+    debug("Received data frame: %s\n", dframe)
+    stream, ok := session.streams[dframe.StreamId]
+    if ok {
+        stream <- &dframe.Data
+    } else {
+        debug("Warning: received data for non-open stream. Dropping\n")
+    }
+}
+
+/* Process a new SYN_STREAM frame */
+func (session *Session) onSynStreamFrame(synframe *spdy.SynStreamFrame, onRequest StreamHandler) {
+    debug("Received syn_stream frame for stream id=%d headers=%s\n", synframe.StreamId, synframe.Headers)
+    _, ok := session.streams[synframe.StreamId]
+    if !ok {
+        debug("Opening new stream: %s\n", synframe.StreamId)
+        session.streams[synframe.StreamId] = make(chan *[]byte)
+        /* Send SYN_REPLY with basic headers before sending any data */
+        go onRequest(session, synframe.StreamId, &synframe.Headers, session.streams[synframe.StreamId])
+    } else {
+        debug("Warning: peer trying to open already open stream. Dropping\n")
+    }
+}
+
+/* Process a new SYN_REPLY frame */
+func (session *Session) onSynReplyFrame(synReplyFrame *spdy.SynReplyFrame) {
+    id := synReplyFrame.StreamId
+    debug("Received syn_reply frame for stream id=%d\n", id)
+    if session.Server {
+        if id % 2 != 0 {
+            debug("Warning: received reply for odd-numbered stream id %d. Dropping\n", id)
+            return /* FIXME: return an error and let the caller decide what to do */
+        }
+    } else {
+        if id % 2 == 0 {
+            debug("warning: received reply for even-numbered stream id. Dropping\n", id)
+            return
+        }
+    }
+    onResponse, ok := session.myStreams[id]
+    if !ok {
+        debug("Warning: received reply for stream id=%d but we didn't create it. Dropping\n", id)
+        return
+    }
+    session.streams[id] = make(chan *[]byte)
+    debug("Calling response handler for stream %d\n", id)
+    go onResponse(session, id, &synReplyFrame.Headers, session.streams[id])
+}
+
 
 
 
