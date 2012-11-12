@@ -13,6 +13,7 @@ import (
 )
 
 var DEBUG bool = false
+var STREAM_BUFFER_SIZE = 1000
 
 func debug(msg string, args... interface{}) {
     if DEBUG || (os.Getenv("DEBUG") != "") {
@@ -21,6 +22,9 @@ func debug(msg string, args... interface{}) {
 }
 
 
+type Handler interface {
+    ServeSPDY(stream *Stream)
+}
 
 
 /*
@@ -39,16 +43,13 @@ type Session struct {
     *spdy.Framer
     Server              bool                    // Are we the server? (necessary for stream ID numbering)
     lastStreamId        uint32                  // Last (and highest-numbered) stream ID we allocated
-    streams             map[uint32]chan *[]byte
-    myStreams           map[uint32]StreamHandler         // Response handlers for all streams opened by us
+    streams             map[uint32] *Stream
+    handler             Handler
 }
-
-/* A function which can be called when a new stream is created by the session's remote peer */
-type StreamHandler func(session *Session, id uint32, headers *http.Header, stream <-chan *[]byte)
 
 
 /* Create a new Session object */
-func NewSession(writer io.Writer, reader io.Reader, server bool) (*Session, error) {
+func NewSession(writer io.Writer, reader io.Reader, handler Handler, server bool) (*Session, error) {
     framer, err := spdy.NewFramer(writer, reader)
     if err != nil {
         return nil, err
@@ -57,18 +58,14 @@ func NewSession(writer io.Writer, reader io.Reader, server bool) (*Session, erro
         framer,
         server,
         0,
-        make(map[uint32]chan *[]byte),
-        make(map[uint32]StreamHandler),
+        make(map[uint32]*Stream),
+        handler,
     }, nil
 }
 
 
-/* A function which can be called when a new session is created */
-type SessionHandler func(*Session)
-
-
 /* Listen on a TCP port, and pass new connections to a handler */
-func ServeTCP(addr string, handler SessionHandler) {
+func ServeTCP(addr string, handler Handler) {
     debug("Listening to %s\n", addr)
     listener, err := net.Listen("tcp", addr)
     if err != nil {
@@ -79,11 +76,11 @@ func ServeTCP(addr string, handler SessionHandler) {
         if err != nil {
             log.Fatal(err)
         }
-        session, err := NewSession(conn, conn, true)
+        session, err := NewSession(conn, conn, handler, true)
         if err != nil {
             log.Fatal(err)
         }
-        go handler(session)
+        go session.Run()
     }
 }
 
@@ -96,12 +93,8 @@ func DialTCP(addr string) (*Session, error) {
     if err != nil {
         log.Fatal(err)
     }
-    return NewSession(conn, conn, false)
+    return NewSession(conn, conn, nil, false)
 }
-
-
-
-
 
 /*
 ** Compute the ID which should be used to open the next stream 
@@ -130,60 +123,40 @@ func DialTCP(addr string) (*Session, error) {
 }
 
 
-/* Initiate a new stream (this will send a SYN_STREAM frame to the peer) */
-func (session *Session) OpenStream(headers http.Header, onResponse StreamHandler) (uint32) {
+func (session *Session) OpenStream(headers *http.Header, handler Handler) (*Stream, error) {
     newId := session.nextId()
-    debug("Creating new stream with ID %d\n", newId)
-    synStreamFrame := spdy.SynStreamFrame{
-            StreamId: newId,
-            CFHeader: spdy.ControlFrameHeader{},
-            Headers: headers,
-        }
-    err := session.WriteFrame(&synStreamFrame)
-    if err != nil {
-        log.Fatal(err)
-    }
+    stream := newStream(session, newId, handler)
     session.lastStreamId = newId
-    session.myStreams[newId] = onResponse
-    return newId
-}
-
-/* Send data on an open stream */
-func (session *Session) Send_data(streamId uint32, data []byte) {
-    debug("Sending data: %s\n", data)
-    err := session.WriteFrame(&spdy.DataFrame{
-        StreamId:   streamId,
-        Data:       data,
-    })
+    session.streams[newId] = stream
+    err := stream.SendSyn(headers)
     if err != nil {
-        log.Fatal("WriteFrame: %s", err)
+        return nil, err
     }
+    return stream, nil
 }
-
 
 
 /*
-** Session.Run(onRequest StreamHandler)
-**
 ** Listen for new frames and process them. Inbound streams will be passed to `onRequest`.
 */
 
-func (session *Session) Run(onRequest StreamHandler) {
+func (session *Session) Run() {
     for {
         frame, err := session.ReadFrame()
+        var prefix string
         if err == io.EOF {
             debug("EOF from peer\n")
             return
         } else if err != nil {
             log.Fatal(err)
         }
-        debug("Received frame: %s\n", frame)
+        debug("Received frame %s\n", prefix, frame)
         /* Did we receive a data frame? */
         if dframe, ok := frame.(*spdy.DataFrame); ok {
             session.onDataFrame(dframe)
         /* Did we receive a syn_stream control frame? */
         } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
-            session.onSynStreamFrame(synframe, onRequest)
+            session.onSynStreamFrame(synframe)
         /* Did we receive a syn_reply control frame */
         } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
             session.onSynReplyFrame(synReplyFrame)
@@ -196,21 +169,23 @@ func (session *Session) onDataFrame(dframe *spdy.DataFrame) {
     debug("Received data frame: %s\n", dframe)
     stream, ok := session.streams[dframe.StreamId]
     if ok {
-        stream <- &dframe.Data
+        stream.onDataFrame(dframe)
     } else {
         debug("Warning: received data for non-open stream. Dropping\n")
     }
 }
 
 /* Process a new SYN_STREAM frame */
-func (session *Session) onSynStreamFrame(synframe *spdy.SynStreamFrame, onRequest StreamHandler) {
+func (session *Session) onSynStreamFrame(synframe *spdy.SynStreamFrame) {
     debug("Received syn_stream frame for stream id=%d headers=%s\n", synframe.StreamId, synframe.Headers)
     _, ok := session.streams[synframe.StreamId]
     if !ok {
+        /* FIXME check for valid ID */
         debug("Opening new stream: %s\n", synframe.StreamId)
-        session.streams[synframe.StreamId] = make(chan *[]byte)
+        stream := newStream(session, synframe.StreamId, session.handler)
+        session.streams[synframe.StreamId] = stream
+        stream.onSynStreamFrame(synframe)
         /* Send SYN_REPLY with basic headers before sending any data */
-        go onRequest(session, synframe.StreamId, &synframe.Headers, session.streams[synframe.StreamId])
     } else {
         debug("Warning: peer trying to open already open stream. Dropping\n")
     }
@@ -220,29 +195,29 @@ func (session *Session) onSynStreamFrame(synframe *spdy.SynStreamFrame, onReques
 func (session *Session) onSynReplyFrame(synReplyFrame *spdy.SynReplyFrame) {
     id := synReplyFrame.StreamId
     debug("Received syn_reply frame for stream id=%d\n", id)
-    if session.Server {
-        if id % 2 != 0 {
-            debug("Warning: received reply for odd-numbered stream id %d. Dropping\n", id)
-            return /* FIXME: return an error and let the caller decide what to do */
-        }
-    } else {
-        if id % 2 == 0 {
-            debug("warning: received reply for even-numbered stream id. Dropping\n", id)
-            return
-        }
-    }
-    onResponse, ok := session.myStreams[id]
-    if !ok {
-        debug("Warning: received reply for stream id=%d but we didn't create it. Dropping\n", id)
+    if !session.isLocalId(id) {
+        debug("Warning: received reply for stream id %d which we can't legally create. Dropping\n", id)
         return
     }
-    session.streams[id] = make(chan *[]byte)
-    debug("Calling response handler for stream %d\n", id)
-    go onResponse(session, id, &synReplyFrame.Headers, session.streams[id])
+    stream, ok := session.streams[id]
+    if !ok {
+        debug("Warning: received reply for unknown stream id=%d. Dropping\n", id)
+        return
+    }
+    stream.onSynReplyFrame(synReplyFrame)
 }
 
 
-
+/*
+ * Return true if it's legal for `id` to be locally created
+ * (eg. even-numbered if we're the server, odd-numbered if we're the client)
+ */
+func (session *Session) isLocalId(id uint32) bool {
+    if session.Server {
+        return (id % 2 == 0) /* Return true if id is even */
+    }
+    return (id % 2 != 0) /* Return true if id is odd */
+}
 
 
 /*
@@ -251,45 +226,111 @@ func (session *Session) onSynReplyFrame(synReplyFrame *spdy.SynReplyFrame) {
 **
 */
 
+type Stream struct {
+    session         *Session
+    Id              uint32
+    InHeaders       http.Header
+    OutHeaders      http.Header
+    InboundData     chan *[]byte
+    handler         Handler
+}
 
-func (session *Session) ReplyStream(id uint32, headers http.Header, final bool) {
-    var flags spdy.ControlFlags
-    if final {
-        debug("Setting FLAG_FIN to close stream %d\n", id)
-        flags |= spdy.ControlFlagFin
+
+func newStream(session *Session, id uint32, handler Handler) *Stream {
+    return &Stream{
+        session,
+        id,
+        http.Header{},
+        http.Header{},
+        make(chan *[]byte, STREAM_BUFFER_SIZE),
+        handler,
     }
-    session.WriteFrame(&spdy.SynReplyFrame{
-        CFHeader:       spdy.ControlFrameHeader{Flags: flags},
-        Headers:        headers,
-        StreamId:       id,
+}
+
+
+func (stream *Stream) SendData(data []byte) error {
+    debug("Sending data: %s\n", data)
+    return stream.session.WriteFrame(&spdy.DataFrame{
+        StreamId:   stream.Id,
+        Data:       data,
     })
 }
 
-func Attach_reader(session *Session, reader *bufio.Reader, streamId uint32, _<-chan *[]byte) {
+
+func (stream *Stream) SendLines(lines *bufio.Reader) error {
     for {
-        line, _, err := reader.ReadLine()
+        line, _, err := lines.ReadLine()
         if err == io.EOF {
             debug("Received EOF from input\n")
-            return
+            return nil
         } else if err != nil {
-            log.Fatal(err)
+            return err
         }
-        err = session.WriteFrame(&spdy.DataFrame{
-            StreamId:   streamId,
-            Data:       []byte(string(line)),
-        })
-        if err != nil {
-            log.Fatal("WriteFrame: %s", err)
+        if stream.SendData(line) != nil {
+            return err
         }
    }
-   debug("Received EOF from local input\n")
+   return nil
 }
 
-func Attach_writer(_ *Session, writer *bufio.Writer, streamId uint32, stream <-chan *[]byte) {
-    for msg := range stream {
-        writer.Write(*msg)
-        writer.Flush()
+/* Block until `stream` is closed  (FIXME: not implemented) */
+func (stream *Stream) Wait() {
+    <-make(chan bool) /* Hang forever */
+}
+
+
+func (stream *Stream) onDataFrame(frame *spdy.DataFrame) {
+    debug("[STREAM %d] Received data frame %s\n", stream.Id, frame.Data)
+    stream.InboundData <- &frame.Data
+}
+
+func (stream *Stream) onSynStreamFrame(frame *spdy.SynStreamFrame) {
+    updateHeaders(&stream.InHeaders, &frame.Headers) /* We received new headers */
+    go stream.handler.ServeSPDY(stream)
+}
+
+func (stream *Stream) onSynReplyFrame(frame *spdy.SynReplyFrame) {
+    updateHeaders(&stream.InHeaders, &frame.Headers) /* We received new headers */
+    go stream.handler.ServeSPDY(stream)
+}
+
+func (stream *Stream) SendSyn(headers *http.Header) error {
+    updateHeaders(&stream.OutHeaders, headers)
+    return stream.session.WriteFrame(&spdy.SynStreamFrame{
+            StreamId: stream.Id,
+            CFHeader: spdy.ControlFrameHeader{},
+            Headers: *headers,
+    })
+}
+
+
+func (stream *Stream) SendSynReply(headers *http.Header, final bool) error {
+    updateHeaders(&stream.OutHeaders, headers)
+    var flags spdy.ControlFlags
+    if final {
+        debug("Setting FLAG_FIN to close stream %d\n", stream.Id)
+        flags |= spdy.ControlFlagFin
     }
-    debug("Done reading from stream %d\n", streamId)
+    return stream.session.WriteFrame(&spdy.SynReplyFrame{
+        CFHeader:       spdy.ControlFrameHeader{Flags: flags},
+        Headers:        *headers,
+        StreamId:       stream.Id,
+    })
 }
 
+/*
+** Call the stream's handler.
+**
+*/
+func (stream *Stream) Run() {
+    go stream.handler.ServeSPDY(stream)
+}
+
+
+func updateHeaders(headers *http.Header, newHeaders *http.Header) {
+    for key, values := range *newHeaders {
+        for _, value := range values {
+            headers.Add(key, value)
+        }
+    }
+}
