@@ -80,6 +80,27 @@ func (reader *StreamReader) Push(data *[]byte, headers *http.Header) {
 }
 
 
+/* Send all output from a reader to another writer */
+
+func (reader *StreamReader) Pipe(writer *StreamWriter) error {
+    for {
+        data, headers, err := reader.Receive()
+        if err == io.EOF {
+            // FIXME: close stream
+            // FIXME: expose FLAG_FIN?
+            return nil
+        } else if err != nil {
+            return err
+        } else if headers != nil { // FIXME: can data and headers both be non-nil?
+            updateHeaders(writer.Headers(), headers)
+            writer.SendHeaders(false)
+        } else if data != nil {
+            writer.Send(data)
+        }
+    }
+    return nil
+}
+
 
 /*
 ** StreamWriter: write data and headers to a stream
