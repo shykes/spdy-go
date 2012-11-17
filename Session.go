@@ -127,9 +127,9 @@ func DialTCP(addr string, handler Handler) (*Session, error) {
 }
 
 
-func (session *Session) OpenStream(headers *http.Header, handler Handler) (*Stream, error) {
+func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
     newId := session.nextId()
-    stream := newStream(session, newId, handler, true)
+    stream := newStream(session, newId, true)
     session.lastStreamId = newId
     session.streams[newId] = stream
     updateHeaders(stream.Output.Headers(), headers)
@@ -173,12 +173,12 @@ func (session *Session) Run() {
                 continue
             }
             /* Create a new stream */
-            stream := newStream(session, synframe.StreamId, session.handler, false)
+            stream := newStream(session, synframe.StreamId, false)
             session.streams[synframe.StreamId] = stream
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synframe.Headers)
             /* Run the handler */
-            stream.Run()
+            go session.handler.ServeSPDY(stream)
         /* Did we receive a syn_reply control frame */
         } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
             id := synReplyFrame.StreamId
@@ -193,8 +193,7 @@ func (session *Session) Run() {
             }
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
-            /* Run the handler */
-            stream.Run()
+            stream.Input.Push(nil, &synReplyFrame.Headers)
         }
     }
 }

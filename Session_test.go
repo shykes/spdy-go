@@ -57,7 +57,7 @@ func TestSendStream(t *testing.T) {
     if err != nil {
         t.Error(err)
     }
-    _, err = session.OpenStream(&http.Header{}, nil)
+    _, err = session.OpenStream(&http.Header{})
     if err != nil {
         t.Error(err)
     }

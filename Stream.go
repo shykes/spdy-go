@@ -32,28 +32,20 @@ type Stream struct {
     Id              uint32
     Input           *StreamReader
     Output          *StreamWriter
-    handler         Handler
     IsMine          bool // Was this stream created locally?
 }
 
-
-func newStream(session *Session, id uint32, handler Handler, IsMine bool) *Stream {
+func newStream(session *Session, id uint32, IsMine bool) *Stream {
     stream := &Stream{
         session,
         id,
         nil,
         nil,
-        handler,
         IsMine,
     }
     stream.Input = &StreamReader{stream, http.Header{}, NewMQ()}
     stream.Output = &StreamWriter{stream, http.Header{}, 0}
     return stream
-}
-
-
-func (stream *Stream) Run() {
-    go stream.handler.ServeSPDY(stream)
 }
 
 
