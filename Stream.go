@@ -75,6 +75,18 @@ func (reader *StreamReader) Receive() (*[]byte, *http.Header, error) {
     return msg.(*streamMessage).data, msg.(*streamMessage).headers, err
 }
 
+/* Receive and discard all incoming messages until `headerName` is set, then return its value */
+func (reader *StreamReader) WaitForHeader(key string) (string, error) {
+    for reader.Headers().Get(key) == "" {
+        _, _, err := reader.Receive()
+        if err != nil {
+            return "", err
+        }
+    }
+    return reader.Headers().Get(key), nil
+}
+
+
 func (reader *StreamReader) Push(data *[]byte, headers *http.Header) {
     reader.data.Send(&streamMessage{data, headers})
 }
