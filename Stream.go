@@ -199,3 +199,10 @@ func (writer *StreamWriter) writeFrame(frame spdy.Frame) error {
     writer.nFramesSent += 1
     return nil
 }
+
+
+func (stream *Stream) Session() *Session {
+    // FIXME: simpler to just expose the field
+    return stream.session
+}
+
