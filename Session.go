@@ -4,7 +4,6 @@ package myspdy
 
 import (
     "code.google.com/p/go.net/spdy"
-    "io"
     "log"
     "os"
     "net"
@@ -169,6 +168,10 @@ func (session *Session) Run() error {
                 continue
             }
             stream.Input.Push(&dframe.Data, nil)
+            if dframe.Flags & spdy.DataFlagFin != 0 {
+                stream.Input.Close()
+            }
+
         /* FIXME: Did we receive a headers control frame? */
         } else if headersframe, ok := frame.(*spdy.HeadersFrame); ok {
             stream, exists := session.streams[headersframe.StreamId]
@@ -193,6 +196,9 @@ func (session *Session) Run() error {
             session.streams[synframe.StreamId] = stream
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synframe.Headers)
+            if synframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
             /* Run the handler */
             go session.handler.ServeSPDY(stream)
         /* Did we receive a syn_reply control frame */
@@ -210,6 +216,10 @@ func (session *Session) Run() error {
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
             stream.Input.Push(nil, &synReplyFrame.Headers)
+            /* If FLAG_FIN is set, half-close the stream */
+            if synReplyFrame.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
         }
     }
     return nil

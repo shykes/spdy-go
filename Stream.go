@@ -6,6 +6,7 @@ import (
     "io"
     "bufio"
     "net/http"
+    "errors"
 )
 
 
@@ -44,7 +45,7 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
         IsMine,
     }
     stream.Input = &StreamReader{stream, http.Header{}, NewMQ()}
-    stream.Output = &StreamWriter{stream, http.Header{}, 0}
+    stream.Output = &StreamWriter{stream, http.Header{}, 0, false}
     return stream
 }
 
@@ -72,6 +73,9 @@ func (reader *StreamReader) Headers() *http.Header {
 
 func (reader *StreamReader) Receive() (*[]byte, *http.Header, error) {
     msg, err := reader.data.Receive()
+    if msg == nil {
+        return nil, nil, err
+    }
     return msg.(*streamMessage).data, msg.(*streamMessage).headers, err
 }
 
@@ -88,7 +92,21 @@ func (reader *StreamReader) WaitForHeader(key string) (string, error) {
 
 
 func (reader *StreamReader) Push(data *[]byte, headers *http.Header) {
-    reader.data.Send(&streamMessage{data, headers})
+    err := reader.data.Send(&streamMessage{data, headers})
+    if err != nil {
+        // FIXME: should we trigger a protocol error here? or in Session?
+        debug("%s\n", err)
+    }
+}
+
+func (reader *StreamReader) Close() {
+    debug("[%d] closing input\n", reader.stream.Id)
+    reader.data.Close()
+}
+
+
+func (reader *StreamReader) Closed() bool {
+    return reader.data.Closed()
 }
 
 
@@ -123,6 +141,7 @@ type StreamWriter struct {
     stream      *Stream
     headers     http.Header
     nFramesSent uint32
+    closed      bool
 }
 
 func (writer *StreamWriter) Send(data *[]byte) error {
@@ -131,7 +150,7 @@ func (writer *StreamWriter) Send(data *[]byte) error {
         writer.SendHeaders(false)
     }
     debug("Sending data: %s\n", data)
-    return writer.stream.session.WriteFrame(&spdy.DataFrame{
+    return writer.writeFrame(&spdy.DataFrame{
         StreamId:   writer.stream.Id,
         Data:       *data,
     })
@@ -156,6 +175,20 @@ func (writer *StreamWriter) SendLines(lines *bufio.Reader) error {
 
 func (writer *StreamWriter) Headers() *http.Header {
     return &writer.headers
+}
+
+func (writer *StreamWriter) Close() error {
+    debug("[%s] closing output\n", writer.stream.Id)
+    /* Send a zero-length data frame with FLAG_FIN set */
+    return writer.writeFrame(&spdy.DataFrame{
+        StreamId:   writer.stream.Id,
+        Data:       []byte{},
+        Flags:      0x0|spdy.DataFlagFin,
+    })
+}
+
+func (writer *StreamWriter) Closed() bool {
+    return writer.closed
 }
 
 func (writer *StreamWriter) SendHeaders(final bool) error {
@@ -199,11 +232,17 @@ func (writer *StreamWriter) SendHeaders(final bool) error {
             return err
         }
     }
+    if final {
+        writer.closed = true
+    }
     return nil
 }
 
 func (writer *StreamWriter) writeFrame(frame spdy.Frame) error {
-    debug("Writing frame %s", writer)
+    if writer.Closed() {
+        return errors.New("Stream output is closed")
+    }
+    debug("Writing frame %s", frame)
     err := writer.stream.session.WriteFrame(frame)
     if err != nil {
         return err
