@@ -44,12 +44,13 @@ type Session struct {
     lastStreamId        uint32                  // Last (and highest-numbered) stream ID we allocated
     streams             map[uint32] *Stream
     handler             Handler
+    conn                net.Conn
 }
 
 
 /* Create a new Session object */
-func NewSession(writer io.Writer, reader io.Reader, handler Handler, server bool) (*Session, error) {
-    framer, err := spdy.NewFramer(writer, reader)
+func NewSession(conn net.Conn, handler Handler, server bool) (*Session, error) {
+    framer, err := spdy.NewFramer(conn, conn)
     if err != nil {
         return nil, err
     }
@@ -59,6 +60,7 @@ func NewSession(writer io.Writer, reader io.Reader, handler Handler, server bool
         0,
         make(map[uint32]*Stream),
         handler,
+        conn,
     }, nil
 }
 
@@ -75,7 +77,7 @@ func ServeTCP(addr string, handler Handler) {
         if err != nil {
             log.Fatal(err)
         }
-        session, err := NewSession(conn, conn, handler, true)
+        session, err := NewSession(conn, handler, true)
         if err != nil {
             log.Fatal(err)
         }
@@ -92,13 +94,20 @@ func DialTCP(addr string, handler Handler) (*Session, error) {
     if err != nil {
         log.Fatal(err)
     }
-    session, err := NewSession(conn, conn, handler, false)
+    session, err := NewSession(conn, handler, false)
     if err != nil {
         return nil, err
     }
     go session.Run()
     return session, nil
 }
+
+
+func (session *Session) Close() error {
+    debug("Session.Close()\n")
+    return session.conn.Close()
+}
+
 
 /*
 ** Compute the ID which should be used to open the next stream 
@@ -142,16 +151,13 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
 ** Listen for new frames and process them. Inbound streams will be passed to `onRequest`.
 */
 
-func (session *Session) Run() {
+func (session *Session) Run() error {
     debug("%s Run()", session)
     for {
         frame, err := session.ReadFrame()
         var prefix string
-        if err == io.EOF {
-            debug("EOF from peer\n")
-            return
-        } else if err != nil {
-            log.Fatal(err)
+        if err != nil {
+            return err
         }
         debug("Received frame %s\n", prefix, frame)
         /* Did we receive a data frame? */
@@ -206,6 +212,7 @@ func (session *Session) Run() {
             stream.Input.Push(nil, &synReplyFrame.Headers)
         }
     }
+    return nil
 }
 
 
