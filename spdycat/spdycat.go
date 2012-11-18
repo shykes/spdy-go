@@ -86,8 +86,6 @@ func processStream(stream *myspdy.Stream) {
             if err != nil {
                 log.Fatal("Error closing stream: %s", err)
             }
-            <-stream_lock
-            // stream has closed
         }
         case _ = <-stream_lock: {
             // stream input closed. Closing output
