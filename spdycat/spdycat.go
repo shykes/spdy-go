@@ -17,35 +17,54 @@ import (
 type Server struct {}
 
 
+func headersString(headers http.Header) string {
+    var s string
+    for key := range headers {
+        if len(s) != 0 {
+            s = s + " "
+        }
+        s += fmt.Sprintf("%s=%s", key, headers.Get(key))
+    }
+    return s
+}
+
 /* On stream creation */
 func (server *Server) ServeSPDY(stream *myspdy.Stream) {
-    fmt.Printf("-> %#v\n", *stream.Input.Headers())
-    stream.Output.Headers().Add("foo", "bar")
+    os.Stderr.Write([]byte(fmt.Sprintf("[%d] %s\n", stream.Id, headersString(*stream.Input.Headers()))))
     stream.Output.Headers().Add(":status", "200")
     stream.Output.SendHeaders(false)
     if stream.Id == 1 {
-        sendLinesAsync(stream.Output, bufio.NewReader(os.Stdin))
+        processStream(stream)
+        os.Exit(0)
+    } else {
+        <-dumpStreamAsync(stream)
     }
-    dumpStream(stream)
 }
 
 
-func dumpStream(stream *myspdy.Stream) {
-    for {
-        data, headers, err := stream.Input.Receive()
-        if err == io.EOF {
-            return
-        } else if err != nil {
-            log.Fatal(err)
+func dumpStreamAsync(stream *myspdy.Stream) chan bool {
+    lock := make(chan bool)
+    go func () {
+        for {
+            data, headers, err := stream.Input.Receive()
+            if err != nil && err != io.EOF {
+                log.Fatal("Error dumping stream: %s", err)
+            }
+            // FIXME: buffer frames and print one line at a time
+            if data != nil && len(*data) != 0 {
+                os.Stdout.Write([]byte(fmt.Sprintf("[%d] %s\n", stream.Id, *data)))
+            } else if headers != nil {
+                os.Stderr.Write([]byte(fmt.Sprintf("[%s] %s\n", stream.Id, headersString(*stream.Input.Headers()))))
+            }
+            if err == io.EOF {
+                lock<-true
+                return
+            }
         }
-        // FIXME: buffer frames and print one line at a time
-        if data != nil {
-            os.Stdout.Write([]byte(fmt.Sprintf("[%d] %s\n", stream.Id, *data)))
-        } else if headers != nil {
-            os.Stdout.Write([]byte(fmt.Sprintf("[%d] [HEADERS] %s\n", stream.Id, *headers)))
-        }
-    }
+    }()
+    return lock
 }
+
 
 func sendLinesAsync(output *myspdy.StreamWriter, source *bufio.Reader) chan bool {
     sync := make(chan bool)
@@ -54,6 +73,34 @@ func sendLinesAsync(output *myspdy.StreamWriter, source *bufio.Reader) chan bool
         sync<-true
     }()
     return sync
+}
+
+
+func processStream(stream *myspdy.Stream) {
+    stdin_lock := sendLinesAsync(stream.Output, bufio.NewReader(os.Stdin))
+    stream_lock := dumpStreamAsync(stream)
+    select {
+        case _ = <-stdin_lock: {
+            // stdin closed. Waiting for stream to close
+            err := stream.Output.Close()
+            if err != nil {
+                log.Fatal("Error closing stream: %s", err)
+            }
+            <-stream_lock
+            // stream has closed
+        }
+        case _ = <-stream_lock: {
+            // stream input closed. Closing output
+            err := stream.Output.Close()
+            if err != nil {
+                log.Fatal("Error closing stream: %s", err)
+            }
+        }
+    }
+    err := stream.Session().Close()
+    if err != nil {
+        log.Fatal("Error closing session: %s", err)
+    }
 }
 
 
@@ -68,15 +115,13 @@ func main() {
     } else {
         session, err := myspdy.DialTCP(addr, server)
         if err != nil {
-            log.Fatal(err)
+            log.Fatal("Error connecting: %s", err)
         }
         stream, err := session.OpenStream(headers)
         if err != nil {
-            log.Fatal(err)
+            log.Fatal("Error opening stream: %s", err)
         }
-        lock := sendLinesAsync(stream.Output, bufio.NewReader(os.Stdin))
-        dumpStream(stream)
-        <-lock
+        processStream(stream)
     }
 }
 
