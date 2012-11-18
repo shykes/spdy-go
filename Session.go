@@ -164,6 +164,16 @@ func (session *Session) Run() {
             }
             stream.Input.Push(&dframe.Data, nil)
         /* FIXME: Did we receive a headers control frame? */
+        } else if headersframe, ok := frame.(*spdy.HeadersFrame); ok {
+            stream, exists := session.streams[headersframe.StreamId]
+            if !exists { // Protocol error
+                debug("Received headers for unknown stream id %s. Dropping.\n", headersframe.StreamId)
+                continue
+            }
+            stream.Input.Push(nil, &headersframe.Headers)
+            if headersframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
 
         /* Did we receive a syn_stream control frame? */
         } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
