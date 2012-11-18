@@ -112,23 +112,31 @@ func (reader *StreamReader) Closed() bool {
 
 /* Send all output from a reader to another writer */
 
-func (reader *StreamReader) Pipe(writer *StreamWriter) error {
+func (reader *StreamReader) Pipe(writer *StreamWriter) (error, error) {
     for {
         data, headers, err := reader.Receive()
-        if err == io.EOF {
-            // FIXME: close stream
-            // FIXME: expose FLAG_FIN?
-            return nil
-        } else if err != nil {
-            return err
-        } else if headers != nil { // FIXME: can data and headers both be non-nil?
+        if err != nil {
+            return err, nil
+        }
+        eof := err == io.EOF
+        if headers != nil { // FIXME: can data and headers both be non-nil?
             updateHeaders(writer.Headers(), headers)
-            writer.SendHeaders(false)
+            err := writer.SendHeaders(false)
+            if err != nil {
+                return nil, err
+            }
         } else if data != nil {
-            writer.Send(data)
+            err := writer.Send(data)
+            if err != nil {
+                return nil, err
+            }
+        }
+        if eof {
+            writer.Close()
+            return nil, nil
         }
     }
-    return nil
+    return nil, nil
 }
 
 
