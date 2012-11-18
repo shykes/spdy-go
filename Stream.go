@@ -160,14 +160,19 @@ func (writer *StreamWriter) SendLines(lines *bufio.Reader) error {
     debug("Sending lines\n")
     for {
         line, _, err := lines.ReadLine()
-        if err == io.EOF {
-            debug("Received EOF from input\n")
-            return nil
-        } else if err != nil {
+        if err != nil && err != io.EOF {
             return err
         }
-        if writer.Send(&line) != nil {
-            return err
+        eof := (err == io.EOF)
+        if len(line) != 0 {
+            err = writer.Send(&line)
+            if err != nil {
+                return err
+            }
+        }
+        if eof {
+            debug("Received EOF from input\n")
+            return io.EOF
         }
    }
    return nil
