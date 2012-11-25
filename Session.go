@@ -141,7 +141,10 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
     session.lastStreamId = newId
     session.streams[newId] = stream
     updateHeaders(stream.Output.Headers(), headers)
-    stream.Output.SendHeaders(false)
+    err := stream.Output.SendHeaders(false)
+    if err != nil {
+        return nil, err
+    }
     return stream, nil
 }
 
