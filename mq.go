@@ -14,7 +14,7 @@ import (
 
 type MQ struct {
     messages    []interface{}
-    sync        chan bool
+    sync        chan error
     closed      bool
 }
 
@@ -41,13 +41,10 @@ func (mq *MQ) wait() error {
     if mq.sync != nil {
         return errors.New("MQ can only be watched by one goroutine at a time")
     }
-    mq.sync = make(chan bool)
-    eof := <-mq.sync // Block
+    mq.sync = make(chan error)
+    err := <-mq.sync // Block
     mq.sync = nil
-    if eof {
-        return io.EOF
-    }
-    return nil
+    return err
 }
 
 /*
@@ -61,17 +58,23 @@ func (mq *MQ) Send(msg interface{}) error {
     }
     mq.messages = append(mq.messages, msg)
     if mq.sync != nil {
-        mq.sync <- false // Unblock
+        mq.sync <- nil // Unblock
     }
     return nil
 }
 
+
 func (mq *MQ) Close() {
+    mq.Error(io.EOF)
+}
+
+func (mq *MQ) Error(err error) {
     mq.closed = true
     if mq.sync != nil {
-        mq.sync <- true // EOF
+        mq.sync <- err
     }
 }
+
 
 func (mq *MQ) Closed() bool {
     return mq.closed

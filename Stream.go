@@ -99,6 +99,10 @@ func (reader *StreamReader) Push(data *[]byte, headers *http.Header) {
     }
 }
 
+func (reader *StreamReader) Error(err error) {
+    reader.data.Error(err)
+}
+
 func (reader *StreamReader) Close() {
     debug("[%d] closing input\n", reader.stream.Id)
     reader.data.Close()
