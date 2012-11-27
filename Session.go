@@ -172,14 +172,13 @@ func (session *Session) receiveLoop() error {
     debug("Starting receive loop\n")
     for {
         frame, err := session.ReadFrame()
-        var prefix string
         if err != nil {
             for _, stream := range session.streams {
                 stream.Input.Error(err)
             }
             return err
         }
-        debug("Received frame %s\n", prefix, frame)
+        debug("Received frame %s\n", frame)
         /* Did we receive a data frame? */
         if dframe, ok := frame.(*spdy.DataFrame); ok {
             stream, exists := session.streams[dframe.StreamId]
