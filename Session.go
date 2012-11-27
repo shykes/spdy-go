@@ -209,6 +209,9 @@ func (session *Session) receiveLoop() <-chan error {
             frame, err := session.ReadFrame()
             var prefix string
             if err != nil {
+                for _, stream := range session.streams {
+                    stream.Input.Error(err)
+                }
                 return err
             }
             debug("Received frame %s\n", prefix, frame)
