@@ -133,7 +133,8 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
 
 
 /*
-** Listen for new frames and process them. Inbound streams will be passed to `onRequest`.
+** Session main loop: run the receive loop and ping loop in parallel,
+** and return an error if either one fails.
 */
 
 
@@ -142,7 +143,6 @@ func (session *Session) Run() error {
     pingChan := promise(func() error { return session.pingLoop() })
     receiveChan := promise(func() error { return session.receiveLoop() })
     for {
-        /* Check for a ping error */
         select {
             case err := <-pingChan: {
                 if err != nil {
@@ -164,6 +164,9 @@ func (session *Session) Run() error {
 }
 
 
+/*
+** Listen for new frames and process them
+*/
 
 func (session *Session) receiveLoop() error {
         debug("Starting receive loop\n")
@@ -272,6 +275,10 @@ func (session *Session) receiveLoop() error {
 
 
 
+/*
+** Send a new ping frame
+*/
+
 func (session *Session) Ping() error {
     ping := Ping{
         Id:     session.nextId(session.lastPingId),
@@ -289,7 +296,9 @@ func (session *Session) Ping() error {
 }
 
 
-/* Send a ping every 30 seconds */
+/*
+** Send a ping every 30 seconds
+*/
 
 func (session *Session) pingLoop() error {
         for {
