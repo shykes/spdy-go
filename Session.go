@@ -139,8 +139,8 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
 
 func (session *Session) Run() error {
     debug("%s Run()", session)
-    pingChan := session.pingLoop()
-    receiveChan := session.receiveLoop()
+    pingChan := promise(func() error { return session.pingLoop() })
+    receiveChan := promise(func() error { return session.receiveLoop() })
     for {
         /* Check for a ping error */
         select {
@@ -165,8 +165,7 @@ func (session *Session) Run() error {
 
 
 
-func (session *Session) receiveLoop() <-chan error {
-    syncReceive := func() error {
+func (session *Session) receiveLoop() error {
         debug("Starting receive loop\n")
         for {
             frame, err := session.ReadFrame()
@@ -269,12 +268,6 @@ func (session *Session) receiveLoop() <-chan error {
             }
         }
         return nil
-    }
-    ch := make(chan error)
-    go func() {
-        ch <- syncReceive()
-    }()
-    return ch
 }
 
 
@@ -298,9 +291,7 @@ func (session *Session) Ping() error {
 
 /* Send a ping every 30 seconds */
 
-func (session *Session) pingLoop() <-chan error {
-    syncLoop := func() error {
-        debug("Starting ping loop\n")
+func (session *Session) pingLoop() error {
         for {
             err := session.Ping()
             if err != nil {
@@ -310,13 +301,8 @@ func (session *Session) pingLoop() <-chan error {
             time.Sleep(30 * time.Second)
         }
         return nil
-    }
-    ch := make(chan error)
-    go func() {
-        ch <- syncLoop()
-    }()
-    return ch
 }
+
 
 /*
  * Return true if it's legal for `id` to be locally created
