@@ -1,5 +1,5 @@
 
-package myspdy
+package spdy
 
 import (
     "code.google.com/p/go.net/spdy"

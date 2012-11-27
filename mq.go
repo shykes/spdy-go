@@ -1,5 +1,5 @@
 
-package myspdy
+package spdy
 
 import (
     "errors"

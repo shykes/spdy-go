@@ -1,12 +1,13 @@
-# myspdy: a SPDY implementation for humans, written in Golang
+# spdy.go: a SPDY implementation for humans, written in Golang
 
 
 ## About
 
-myspdy is a SPDY implementation for humans, written in Golang. It is alpha software and should not be used in production.
+spdy.go is a SPDY implementation for humans, written in Golang. It is alpha software and should not be used in production.
+
 
 Author: Solomon Hykes <solomon@dotcloud.com>
-URL: http://github.com/shykes/myspdy
+URL: http://github.com/shykes/spdy.go
 
 
 ## Example

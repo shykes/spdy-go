@@ -1,4 +1,4 @@
-package myspdy
+package spdy
 
 import (
     "testing"
