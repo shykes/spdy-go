@@ -169,108 +169,108 @@ func (session *Session) Run() error {
 */
 
 func (session *Session) receiveLoop() error {
-        debug("Starting receive loop\n")
-        for {
-            frame, err := session.ReadFrame()
-            var prefix string
-            if err != nil {
-                for _, stream := range session.streams {
-                    stream.Input.Error(err)
-                }
-                return err
+    debug("Starting receive loop\n")
+    for {
+        frame, err := session.ReadFrame()
+        var prefix string
+        if err != nil {
+            for _, stream := range session.streams {
+                stream.Input.Error(err)
             }
-            debug("Received frame %s\n", prefix, frame)
-            /* Did we receive a data frame? */
-            if dframe, ok := frame.(*spdy.DataFrame); ok {
-                stream, exists := session.streams[dframe.StreamId]
-                if !exists {
-                    // Protocol error
-                    debug("Received a data frame for unknown stream id %s. Dropping.\n", dframe.StreamId)
-                    continue
-                }
-                stream.Input.Push(&dframe.Data, nil)
-                if dframe.Flags & spdy.DataFlagFin != 0 {
-                    stream.Input.Close()
-                }
+            return err
+        }
+        debug("Received frame %s\n", prefix, frame)
+        /* Did we receive a data frame? */
+        if dframe, ok := frame.(*spdy.DataFrame); ok {
+            stream, exists := session.streams[dframe.StreamId]
+            if !exists {
+                // Protocol error
+                debug("Received a data frame for unknown stream id %s. Dropping.\n", dframe.StreamId)
+                continue
+            }
+            stream.Input.Push(&dframe.Data, nil)
+            if dframe.Flags & spdy.DataFlagFin != 0 {
+                stream.Input.Close()
+            }
 
-            /* FIXME: Did we receive a headers control frame? */
-            } else if headersframe, ok := frame.(*spdy.HeadersFrame); ok {
-                stream, exists := session.streams[headersframe.StreamId]
-                if !exists { // Protocol error
-                    debug("Received headers for unknown stream id %s. Dropping.\n", headersframe.StreamId)
-                    continue
-                }
-                stream.Input.Push(nil, &headersframe.Headers)
-                if headersframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
-                    stream.Input.Close()
-                }
+        /* FIXME: Did we receive a headers control frame? */
+        } else if headersframe, ok := frame.(*spdy.HeadersFrame); ok {
+            stream, exists := session.streams[headersframe.StreamId]
+            if !exists { // Protocol error
+                debug("Received headers for unknown stream id %s. Dropping.\n", headersframe.StreamId)
+                continue
+            }
+            stream.Input.Push(nil, &headersframe.Headers)
+            if headersframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
 
-            /* Did we receive a syn_stream control frame? */
-            } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
-                _, exists := session.streams[synframe.StreamId]
-                if exists { // Protocol error
-                    debug("Received syn_stream frame for stream id=%s. Dropping\n", synframe.StreamId)
+        /* Did we receive a syn_stream control frame? */
+        } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
+            _, exists := session.streams[synframe.StreamId]
+            if exists { // Protocol error
+                debug("Received syn_stream frame for stream id=%s. Dropping\n", synframe.StreamId)
+                continue
+            }
+            /* Create a new stream */
+            stream := newStream(session, synframe.StreamId, false)
+            session.streams[synframe.StreamId] = stream
+            /* Set the initial headers */
+            updateHeaders(stream.Input.Headers(), &synframe.Headers)
+            if synframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
+            /* Run the handler */
+            go session.handler.ServeSPDY(stream)
+        /* Did we receive a syn_reply control frame */
+        } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
+            id := synReplyFrame.StreamId
+            if !session.isLocalId(id) {
+                debug("Warning: received reply for stream id %d which we can't legally create. Dropping\n", id)
+                continue
+            }
+            stream, exists := session.streams[id]
+            if !exists {
+                debug("Warning: received reply for unknown stream id=%d. Dropping\n", id)
+                continue
+            }
+            /* Set the initial headers */
+            updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
+            stream.Input.Push(nil, &synReplyFrame.Headers)
+            /* If FLAG_FIN is set, half-close the stream */
+            if synReplyFrame.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+                stream.Input.Close()
+            }
+        } else if pingFrame, ok := frame.(*spdy.PingFrame); ok {
+            id := pingFrame.Id
+            if !session.isLocalId(id) { // Peer is opening a new ping
+                _, exists := session.pings[id]
+                if exists { // Already received this ping. Ignore.
+                    debug("Warning: received duplicate ping. Ignoring.\n")
                     continue
                 }
-                /* Create a new stream */
-                stream := newStream(session, synframe.StreamId, false)
-                session.streams[synframe.StreamId] = stream
-                /* Set the initial headers */
-                updateHeaders(stream.Input.Headers(), &synframe.Headers)
-                if synframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
-                    stream.Input.Close()
+                err := session.WriteFrame(pingFrame) // Right back at ya
+                if err != nil {
+                    return err
                 }
-                /* Run the handler */
-                go session.handler.ServeSPDY(stream)
-            /* Did we receive a syn_reply control frame */
-            } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
-                id := synReplyFrame.StreamId
-                if !session.isLocalId(id) {
-                    debug("Warning: received reply for stream id %d which we can't legally create. Dropping\n", id)
-                    continue
-                }
-                stream, exists := session.streams[id]
-                if !exists {
-                    debug("Warning: received reply for unknown stream id=%d. Dropping\n", id)
-                    continue
-                }
-                /* Set the initial headers */
-                updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
-                stream.Input.Push(nil, &synReplyFrame.Headers)
-                /* If FLAG_FIN is set, half-close the stream */
-                if synReplyFrame.CFHeader.Flags & spdy.ControlFlagFin != 0 {
-                    stream.Input.Close()
-                }
-            } else if pingFrame, ok := frame.(*spdy.PingFrame); ok {
+                session.pings[id] = &Ping{Id: id}
+            } else { // Peer is responding to a ping
                 id := pingFrame.Id
-                if !session.isLocalId(id) { // Peer is opening a new ping
-                    _, exists := session.pings[id]
-                    if exists { // Already received this ping. Ignore.
-                        debug("Warning: received duplicate ping. Ignoring.\n")
-                        continue
-                    }
-                    err := session.WriteFrame(pingFrame) // Right back at ya
-                    if err != nil {
-                        return err
-                    }
-                    session.pings[id] = &Ping{Id: id}
-                } else { // Peer is responding to a ping
-                    id := pingFrame.Id
-                    ping, exists := session.pings[id]
-                    if !exists {
-                        debug("warning: received response to unknown ping. Ignoring.\n")
-                        continue
-                    }
-                    if ping.RTT != 0 {
-                        debug("Warning: received duplicate response to ping %d. Ignoring.\n", id)
-                        continue
-                    }
-                    ping.RTT = time.Now().Sub(ping.Start)
-                    debug("Ping RTT=%v\n", ping.RTT)
+                ping, exists := session.pings[id]
+                if !exists {
+                    debug("warning: received response to unknown ping. Ignoring.\n")
+                    continue
                 }
+                if ping.RTT != 0 {
+                    debug("Warning: received duplicate response to ping %d. Ignoring.\n", id)
+                    continue
+                }
+                ping.RTT = time.Now().Sub(ping.Start)
+                debug("Ping RTT=%v\n", ping.RTT)
             }
         }
-        return nil
+    }
+    return nil
 }
 
 
@@ -301,15 +301,15 @@ func (session *Session) Ping() error {
 */
 
 func (session *Session) pingLoop() error {
-        for {
-            err := session.Ping()
-            if err != nil {
-                debug("[pingLoop] ping failed\n")
-                return err
-            }
-            time.Sleep(30 * time.Second)
+    for {
+        err := session.Ping()
+        if err != nil {
+            debug("[pingLoop] ping failed\n")
+            return err
         }
-        return nil
+        time.Sleep(30 * time.Second)
+    }
+    return nil
 }
 
 
