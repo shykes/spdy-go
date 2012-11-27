@@ -221,7 +221,10 @@ func (session *Session) receiveLoop() error {
                 stream.Input.Close()
             }
             /* Run the handler */
-            go session.handler.ServeSPDY(stream)
+            go func() {
+                session.handler.ServeSPDY(stream)
+                stream.Output.Close()
+            }()
         /* Did we receive a syn_reply control frame */
         } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
             id := synReplyFrame.StreamId
