@@ -20,14 +20,6 @@ type Sender interface {
 }
 
 
-
-
-/*
-** Stream-specific operations
-** (FIXME: wrap in a Stream type?)
-**
-*/
-
 type Stream struct {
     session         *Session
     Id              uint32
