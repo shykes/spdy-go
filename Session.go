@@ -323,13 +323,3 @@ func (session *Session) isLocalId(id uint32) bool {
     }
     return (id % 2 != 0) /* Return true if id is odd */
 }
-
-
-
-func updateHeaders(headers *http.Header, newHeaders *http.Header) {
-    for key, values := range *newHeaders {
-        for _, value := range values {
-            headers.Add(key, value)
-        }
-    }
-}
