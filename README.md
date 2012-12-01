@@ -37,3 +37,19 @@ URL: http://github.com/shykes/spdy.go
     [Shell B]   $ tail -f /var/log/system.log | spdycat :5555 filename=/var/log/system.log
 
     [Shell C]   $ < ~/.bashrc spdycat :5555 filename=~/.bashrc
+
+
+## Bugs & missing features
+
+* Only supports raw TCP (no TLS)
+
+* No support for compression
+
+* Doesn't send protocol errors in places where it should
+
+* Barely any testing
+
+* No support for SETTINGS
+
+* No support for GOAWAY
+
