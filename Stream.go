@@ -13,7 +13,7 @@ import (
 
 
 type Receiver interface {
-    Receive() (*[]byte, *http.Header, error)
+    Receive() (*[]byte, error)
 }
 
 type Sender interface {
@@ -62,15 +62,10 @@ type StreamReader struct {
     readBuffer  bytes.Buffer
 }
 
-type streamMessage struct {
-    data    *[]byte
-    headers *http.Header
-}
-
 func (r *StreamReader) Read(data []byte) (int, error) {
     debug("Read(max %d)\n", len(data))
     for r.readBuffer.Len() == 0 {
-        msg, _, err := r.Receive()
+        msg, err := r.Receive()
         if err != nil {
             return 0, err
         }
@@ -86,7 +81,7 @@ func (r *StreamReader) Read(data []byte) (int, error) {
 func (reader *StreamReader) WriteTo(dst io.Writer) (int64, error) {
     var written int64 = 0
     for {
-        data, _, err := reader.Receive()
+        data, err := reader.Receive()
         if err != nil && err != io.EOF {
             return written, err
         }
@@ -109,18 +104,15 @@ func (reader *StreamReader) Headers() *http.Header {
     return &reader.headers
 }
 
-func (reader *StreamReader) Receive() (*[]byte, *http.Header, error) {
+func (reader *StreamReader) Receive() (*[]byte, error) {
     msg, err := reader.data.Receive()
-    if msg == nil {
-        return nil, nil, err
-    }
-    return msg.(*streamMessage).data, msg.(*streamMessage).headers, err
+    return msg.(*[]byte), err
 }
 
 /* Receive and discard all incoming messages until `headerName` is set, then return its value */
 func (reader *StreamReader) WaitForHeader(key string) (string, error) {
     for reader.Headers().Get(key) == "" {
-        _, _, err := reader.Receive()
+        _, err := reader.Receive()
         if err != nil {
             return "", err
         }
@@ -129,12 +121,8 @@ func (reader *StreamReader) WaitForHeader(key string) (string, error) {
 }
 
 
-func (reader *StreamReader) Push(data *[]byte, headers *http.Header) {
-    err := reader.data.Send(&streamMessage{data, headers})
-    if err != nil {
-        // FIXME: should we trigger a protocol error here? or in Session?
-        debug("%s\n", err)
-    }
+func (reader *StreamReader) Push(data *[]byte) error {
+    return reader.data.Send(data)
 }
 
 func (reader *StreamReader) Error(err error) {
@@ -149,36 +137,6 @@ func (reader *StreamReader) Close() {
 
 func (reader *StreamReader) Closed() bool {
     return reader.data.Closed()
-}
-
-
-/* Send all output from a reader to another writer */
-
-func (reader *StreamReader) Pipe(writer *StreamWriter) (error, error) {
-    for {
-        data, headers, err := reader.Receive()
-        if (err != nil) && (err != io.EOF) {
-            return err, nil
-        }
-        eof := err == io.EOF
-        if headers != nil { // FIXME: can data and headers both be non-nil?
-            updateHeaders(writer.Headers(), headers)
-            err := writer.SendHeaders(false)
-            if err != nil {
-                return nil, err
-            }
-        } else if data != nil {
-            err := writer.Send(data)
-            if err != nil {
-                return nil, err
-            }
-        }
-        if eof {
-            writer.Close()
-            return nil, nil
-        }
-    }
-    return nil, nil
 }
 
 

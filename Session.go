@@ -187,7 +187,7 @@ func (session *Session) receiveLoop() error {
                 debug("Received a data frame for unknown stream id %s. Dropping.\n", dframe.StreamId)
                 continue
             }
-            stream.Input.Push(&dframe.Data, nil)
+            stream.Input.Push(&dframe.Data)
             if dframe.Flags & spdy.DataFlagFin != 0 {
                 stream.Input.Close()
             }
@@ -199,7 +199,8 @@ func (session *Session) receiveLoop() error {
                 debug("Received headers for unknown stream id %s. Dropping.\n", headersframe.StreamId)
                 continue
             }
-            stream.Input.Push(nil, &headersframe.Headers)
+            updateHeaders(stream.Input.Headers(), &headersframe.Headers)
+            // FIXME: notify of new headers?
             if headersframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
                 stream.Input.Close()
             }
@@ -238,7 +239,6 @@ func (session *Session) receiveLoop() error {
             }
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
-            stream.Input.Push(nil, &synReplyFrame.Headers)
             /* If FLAG_FIN is set, half-close the stream */
             if synReplyFrame.CFHeader.Flags & spdy.ControlFlagFin != 0 {
                 stream.Input.Close()
