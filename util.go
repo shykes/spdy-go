@@ -30,3 +30,18 @@ func updateHeaders(headers *http.Header, newHeaders *http.Header) {
         }
     }
 }
+
+
+/*
+** Output a message only if the DEBUG env variable is set
+*/
+
+var DEBUG bool = false
+
+func debug(msg string, args... interface{}) {
+    if DEBUG || (os.Getenv("DEBUG") != "") {
+        log.Printf(msg, args...)
+    }
+}
+
+

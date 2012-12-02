@@ -11,15 +11,7 @@ import (
     "time"
 )
 
-var DEBUG bool = false
 var STREAM_BUFFER_SIZE = 1000
-
-func debug(msg string, args... interface{}) {
-    if DEBUG || (os.Getenv("DEBUG") != "") {
-        log.Printf(msg, args...)
-    }
-}
-
 
 type Handler interface {
     ServeSPDY(stream *Stream)
