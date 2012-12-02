@@ -139,7 +139,7 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
 
 
 func (session *Session) Run() error {
-    debug("%s Run()", session)
+    debug("Session.Run()")
     pingChan := promise(func() error { return session.pingLoop() })
     receiveChan := promise(func() error { return session.receiveLoop() })
     for {
@@ -153,7 +153,7 @@ func (session *Session) Run() error {
             }
             case err := <-receiveChan: {
                 if err != nil {
-                    debug("Receive failed: Interrupting run loop\n")
+                    debug("Receive failed: %s. Interrupting run loop\n", err)
                     session.Close()
                     return err
                 }
