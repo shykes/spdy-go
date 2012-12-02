@@ -11,7 +11,6 @@ import (
     "time"
 )
 
-var STREAM_BUFFER_SIZE = 1000
 
 type Handler interface {
     ServeSPDY(stream *Stream)
