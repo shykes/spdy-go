@@ -44,22 +44,8 @@ func (server *Server) ServeSPDY(stream *spdy.Stream) {
 func dumpStreamAsync(stream *spdy.Stream) chan bool {
     lock := make(chan bool)
     go func () {
-        for {
-            data, headers, err := stream.Input.Receive()
-            if err != nil && err != io.EOF {
-                log.Fatal("Error dumping stream: %s", err)
-            }
-            // FIXME: buffer frames and print one line at a time
-            if data != nil && len(*data) != 0 {
-                os.Stdout.Write([]byte(fmt.Sprintf("[%d] %s\n", stream.Id, *data)))
-            } else if headers != nil {
-                os.Stderr.Write([]byte(fmt.Sprintf("[%s] %s\n", stream.Id, headersString(*stream.Input.Headers()))))
-            }
-            if err == io.EOF {
-                lock<-true
-                return
-            }
-        }
+        io.Copy(os.Stdout, stream.Input)
+        lock<-true
     }()
     return lock
 }
@@ -68,7 +54,7 @@ func dumpStreamAsync(stream *spdy.Stream) chan bool {
 func sendLinesAsync(output *spdy.StreamWriter, source *bufio.Reader) chan bool {
     sync := make(chan bool)
     go func() {
-        output.SendLines(source)
+        io.Copy(output, source)
         sync<-true
     }()
     return sync

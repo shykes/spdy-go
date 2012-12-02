@@ -4,6 +4,7 @@ package spdy
 import (
     "code.google.com/p/go.net/spdy"
     "io"
+    "bytes"
     "bufio"
     "net/http"
     "errors"
@@ -36,8 +37,15 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
         nil,
         IsMine,
     }
-    stream.Input = &StreamReader{stream, http.Header{}, NewMQ()}
-    stream.Output = &StreamWriter{stream, http.Header{}, 0, false}
+    stream.Input = &StreamReader{
+        stream:     stream,
+        data:       NewMQ(),
+        headers:    http.Header{},
+    }
+    stream.Output = &StreamWriter{
+        stream:     stream,
+        headers:    http.Header{},
+    }
     return stream
 }
 
@@ -51,11 +59,49 @@ type StreamReader struct {
     stream  *Stream
     headers http.Header
     data    *MQ
+    readBuffer  bytes.Buffer
 }
 
 type streamMessage struct {
     data    *[]byte
     headers *http.Header
+}
+
+func (r *StreamReader) Read(data []byte) (int, error) {
+    debug("Read(max %d)\n", len(data))
+    for r.readBuffer.Len() == 0 {
+        msg, _, err := r.Receive()
+        if err != nil {
+            return 0, err
+        }
+        if msg != nil {
+            r.readBuffer.Write(*msg)
+        }
+    }
+    n, err := r.readBuffer.Read(data)
+    debug("-> %v, %v\n", n, err)
+    return n, err
+}
+
+func (reader *StreamReader) WriteTo(dst io.Writer) (int64, error) {
+    var written int64 = 0
+    for {
+        data, _, err := reader.Receive()
+        if err != nil && err != io.EOF {
+            return written, err
+        }
+        if data != nil {
+            n, err := dst.Write(*data)
+            if err != nil {
+                return written, err
+            }
+            written += int64(n)
+        }
+        if err == io.EOF {
+            return written, nil
+        }
+    }
+    return written, nil
 }
 
 
@@ -159,6 +205,38 @@ func (writer *StreamWriter) Send(data *[]byte) error {
         Data:       *data,
     })
 }
+
+func (writer *StreamWriter) Write(data []byte) (int, error) {
+    err := writer.Send(&data)
+    if err != nil {
+        return 0, err
+    }
+    return len(data), nil
+}
+
+func (writer *StreamWriter) ReadFrom(src io.Reader) (int64, error) {
+    var written int64 = 0
+    data := make([]byte, 4096)
+    for {
+        nRead, err := src.Read(data)
+        if err != nil && err != io.EOF {
+            return written, err
+        }
+        eof := (err == io.EOF)
+        if nRead != 0 {
+            nWritten, err := writer.Write(data[:nRead])
+            if err != nil {
+                return written, err
+            }
+            written += int64(nWritten)
+        }
+        if eof {
+            break
+        }
+    }
+    return written, nil
+}
+
 
 func (writer *StreamWriter) SendLines(lines *bufio.Reader) error {
     debug("Sending lines\n")
