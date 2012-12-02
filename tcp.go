@@ -6,24 +6,32 @@ import (
     "log"
 )
 
+
 /* Listen on a TCP port, and pass new connections to a handler */
-func ServeTCP(addr string, handler Handler) {
-    debug("Listening to %s\n", addr)
+func ServeTCP(addr string, handler Handler) error {
     listener, err := net.Listen("tcp", addr)
     if err != nil {
         log.Fatal(err)
     }
+    return Serve(listener, handler)
+}
+
+
+func Serve(listener net.Listener, handler Handler) error {
+    debug("Listening to %s\n", listener.Addr())
     for {
         conn, err := listener.Accept()
+        debug("New connection from %s\n", conn.RemoteAddr())
         if err != nil {
-            log.Fatal(err)
+            return err
         }
         session, err := NewSession(conn, handler, true)
         if err != nil {
-            log.Fatal(err)
+            return err
         }
         go session.Run()
     }
+    return nil
 }
 
 
