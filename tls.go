@@ -6,7 +6,7 @@ import (
     "net"
 )
 
-func ServeTLS(addr, certFile, keyFile string, handler Handler) error {
+func ListenAndServeTLS(addr, certFile, keyFile string, handler Handler) error {
 	if addr == "" {
 		addr = ":https"
 	}
@@ -26,5 +26,5 @@ func ServeTLS(addr, certFile, keyFile string, handler Handler) error {
 	}
 
 	tlsListener := tls.NewListener(conn, config)
-	return Serve(tlsListener, handler)
+	return ListenAndServe(tlsListener, handler)
 }

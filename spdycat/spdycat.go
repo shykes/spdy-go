@@ -94,10 +94,10 @@ func main() {
     headers := extractHeaders(flag.Args()[1:])
     server := &Server{} // FIXME: find another name for Server since it is used by both sides
     if *listen {
-        err := spdy.ServeTCP(addr, server)
+        err := spdy.ListenAndServeTCP(addr, server)
         /*
          * // Uncomment to serve over TLS instad of raw TCP
-         * err := spdy.ServeTLS(addr, "cert.pem", "key.pem", server)
+         * err := spdy.ListenAndServeTLS(addr, "cert.pem", "key.pem", server)
          */
         if err != nil {
             log.Fatal("Listen: %s", err)
