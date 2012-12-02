@@ -5,7 +5,7 @@ import (
     "io"
     "bufio"
     "os"
-    "github.com/shykes/myspdy"
+    "github.com/shykes/spdy.go"
     "flag"
     "log"
     "fmt"
@@ -29,8 +29,7 @@ func headersString(headers http.Header) string {
 }
 
 /* On stream creation */
-func (server *Server) ServeSPDY(stream *myspdy.Stream) {
-    os.Stderr.Write([]byte(fmt.Sprintf("[%d] %s\n", stream.Id, headersString(*stream.Input.Headers()))))
+func (server *Server) ServeSPDY(stream *spdy.Stream) {
     stream.Output.Headers().Add(":status", "200")
     stream.Output.SendHeaders(false)
     if stream.Id == 1 {
@@ -42,7 +41,7 @@ func (server *Server) ServeSPDY(stream *myspdy.Stream) {
 }
 
 
-func dumpStreamAsync(stream *myspdy.Stream) chan bool {
+func dumpStreamAsync(stream *spdy.Stream) chan bool {
     lock := make(chan bool)
     go func () {
         for {
@@ -66,7 +65,7 @@ func dumpStreamAsync(stream *myspdy.Stream) chan bool {
 }
 
 
-func sendLinesAsync(output *myspdy.StreamWriter, source *bufio.Reader) chan bool {
+func sendLinesAsync(output *spdy.StreamWriter, source *bufio.Reader) chan bool {
     sync := make(chan bool)
     go func() {
         output.SendLines(source)
@@ -76,7 +75,7 @@ func sendLinesAsync(output *myspdy.StreamWriter, source *bufio.Reader) chan bool
 }
 
 
-func processStream(stream *myspdy.Stream) {
+func processStream(stream *spdy.Stream) {
     stdin_lock := sendLinesAsync(stream.Output, bufio.NewReader(os.Stdin))
     stream_lock := dumpStreamAsync(stream)
     select {
@@ -109,9 +108,9 @@ func main() {
     headers := extractHeaders(flag.Args()[1:])
     server := &Server{} // FIXME: find another name for Server since it is used by both sides
     if *listen {
-        myspdy.ServeTCP(addr, server)
+        spdy.ServeTCP(addr, server)
     } else {
-        session, err := myspdy.DialTCP(addr, server)
+        session, err := spdy.DialTCP(addr, server)
         if err != nil {
             log.Fatal("Error connecting: %s", err)
         }
