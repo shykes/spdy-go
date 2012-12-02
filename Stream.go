@@ -111,7 +111,7 @@ func (reader *StreamReader) Closed() bool {
 func (reader *StreamReader) Pipe(writer *StreamWriter) (error, error) {
     for {
         data, headers, err := reader.Receive()
-        if err != nil {
+        if (err != nil) && (err != io.EOF) {
             return err, nil
         }
         eof := err == io.EOF
