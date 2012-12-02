@@ -5,7 +5,6 @@ import (
     "code.google.com/p/go.net/spdy"
     "io"
     "bytes"
-    "bufio"
     "net/http"
     "errors"
 )

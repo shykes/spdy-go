@@ -3,6 +3,8 @@ package spdy
 
 import (
     "net/http"
+    "os"
+    "log"
 )
 
 /*
