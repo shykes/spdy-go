@@ -35,7 +35,7 @@ func Serve(listener net.Listener, handler Handler) error {
 }
 
 
-/* Connect to a remote tcp server and return an RPCClient object */
+/* Connect to a remote tcp server and return a new Session */
 
 func DialTCP(addr string, handler Handler) (*Session, error) {
     debug("Connecting to %s\n", addr)
