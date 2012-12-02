@@ -182,28 +182,6 @@ func (writer *StreamWriter) ReadFrom(src io.Reader) (int64, error) {
 }
 
 
-func (writer *StreamWriter) SendLines(lines *bufio.Reader) error {
-    debug("Sending lines\n")
-    for {
-        line, _, err := lines.ReadLine()
-        if err != nil && err != io.EOF {
-            return err
-        }
-        eof := (err == io.EOF)
-        if len(line) != 0 {
-            err = writer.Send(&line)
-            if err != nil {
-                return err
-            }
-        }
-        if eof {
-            debug("Received EOF from input\n")
-            return io.EOF
-        }
-   }
-   return nil
-}
-
 func (writer *StreamWriter) Headers() *http.Header {
     return &writer.headers
 }
