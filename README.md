@@ -53,3 +53,4 @@ URL: http://github.com/shykes/spdy.go
 
 * No support for GOAWAY
 
+* Stream data is buffered with no watermark limit
