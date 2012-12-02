@@ -39,7 +39,7 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
     }
     stream.Input = &StreamReader{
         stream:     stream,
-        data:       NewMQ(),
+        MQ:         NewMQ(),
         headers:    http.Header{},
     }
     stream.Output = &StreamWriter{
@@ -58,7 +58,7 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
 type StreamReader struct {
     stream  *Stream
     headers http.Header
-    data    *MQ
+    *MQ
     readBuffer  bytes.Buffer
 }
 
@@ -105,7 +105,7 @@ func (reader *StreamReader) Headers() *http.Header {
 }
 
 func (reader *StreamReader) Receive() (*[]byte, error) {
-    msg, err := reader.data.Receive()
+    msg, err := reader.MQ.Receive()
     return msg.(*[]byte), err
 }
 
@@ -122,21 +122,7 @@ func (reader *StreamReader) WaitForHeader(key string) (string, error) {
 
 
 func (reader *StreamReader) Push(data *[]byte) error {
-    return reader.data.Send(data)
-}
-
-func (reader *StreamReader) Error(err error) {
-    reader.data.Error(err)
-}
-
-func (reader *StreamReader) Close() {
-    debug("[%d] closing input\n", reader.stream.Id)
-    reader.data.Close()
-}
-
-
-func (reader *StreamReader) Closed() bool {
-    return reader.data.Closed()
+    return reader.MQ.Send(data)
 }
 
 
