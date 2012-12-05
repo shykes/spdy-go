@@ -105,7 +105,10 @@ func (reader *StreamReader) Headers() *http.Header {
 
 func (reader *StreamReader) Receive() (*[]byte, error) {
     msg, err := reader.MQ.Receive()
-    return msg.(*[]byte), err
+    if err != nil {
+        return nil, err
+    }
+    return msg.(*[]byte), nil
 }
 
 /* Receive and discard all incoming messages until `headerName` is set, then return its value */
