@@ -47,3 +47,8 @@ func debug(msg string, args... interface{}) {
 }
 
 
+type HandlerFunc func(*Stream)
+
+func (f *HandlerFunc) ServeSPDY(s *Stream) {
+    (*f)(s)
+}
