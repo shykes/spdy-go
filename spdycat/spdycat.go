@@ -2,7 +2,6 @@ package main
 
 import (
     "io"
-    "bufio"
     "os"
     "github.com/shykes/spdy-go"
     "flag"
@@ -27,61 +26,31 @@ func headersString(headers http.Header) string {
     return s
 }
 
-/* On stream creation */
+
 func (server *Server) ServeSPDY(stream *spdy.Stream) {
     stream.Output.Headers().Add(":status", "200")
     stream.Output.SendHeaders(false)
-    if stream.Id == 1 {
-        processStream(stream)
-        os.Exit(0)
-    } else {
-        <-dumpStreamAsync(stream)
-    }
+    processStream(stream)
 }
-
-
-func dumpStreamAsync(stream *spdy.Stream) chan bool {
-    lock := make(chan bool)
-    go func () {
-        io.Copy(os.Stdout, stream.Input)
-        lock<-true
-    }()
-    return lock
-}
-
-
-func sendLinesAsync(output *spdy.StreamWriter, source *bufio.Reader) chan bool {
-    sync := make(chan bool)
-    go func() {
-        io.Copy(output, source)
-        sync<-true
-    }()
-    return sync
-}
-
 
 func processStream(stream *spdy.Stream) {
-    stdin_lock := sendLinesAsync(stream.Output, bufio.NewReader(os.Stdin))
-    stream_lock := dumpStreamAsync(stream)
-    select {
-        case _ = <-stdin_lock: {
-            // stdin closed. Waiting for stream to close
-            err := stream.Output.Close()
+    if stream.Id == 1 {
+        go func() {
+            _, err := io.Copy(stream.Output, os.Stdin)
             if err != nil {
-                log.Fatal("Error closing stream: %s", err)
+                fmt.Printf("Error while sending to stream: %v\n", err)
+                stream.Input.Error(err)
+                stream.Output.Error(err)
+            } else {
+                os.Exit(0)
             }
-        }
-        case _ = <-stream_lock: {
-            // stream input closed. Closing output
-            err := stream.Output.Close()
-            if err != nil {
-                log.Fatal("Error closing stream: %s", err)
-            }
-        }
+        }()
     }
-    err := stream.Session().Close()
+    _, err := io.Copy(os.Stdout, stream.Input)
     if err != nil {
-        log.Fatal("Error closing session: %s", err)
+        fmt.Printf("Error while printing stream: %v\n", err)
+        stream.Input.Error(err)
+        stream.Output.Error(err)
     }
 }
 
