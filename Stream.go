@@ -7,6 +7,7 @@ import (
     "bytes"
     "net/http"
     "errors"
+    "fmt"
 )
 
 
@@ -138,6 +139,7 @@ type StreamWriter struct {
     headers     http.Header
     nFramesSent uint32
     closed      bool
+    err         error
 }
 
 func (writer *StreamWriter) Send(data *[]byte) error {
@@ -205,6 +207,12 @@ func (writer *StreamWriter) Closed() bool {
     return writer.closed
 }
 
+func (writer *StreamWriter) Error(err error) {
+    writer.closed = true
+    writer.err = err
+}
+
+
 func (writer *StreamWriter) SendHeaders(final bool) error {
     // FIXME
     // Optimization: don't resend all headers every time
@@ -254,7 +262,11 @@ func (writer *StreamWriter) SendHeaders(final bool) error {
 
 func (writer *StreamWriter) writeFrame(frame spdy.Frame) error {
     if writer.Closed() {
-        return errors.New("Stream output is closed")
+        if writer.err != nil {
+            return errors.New(fmt.Sprintf("Stream output is closed (%v)", writer.err))
+        } else {
+            return errors.New("Stream output is closed")
+        }
     }
     debug("Writing frame %s", frame)
     err := writer.stream.session.WriteFrame(frame)
