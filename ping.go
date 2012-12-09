@@ -73,6 +73,9 @@ func (session *Session) Ping() error {
  */
 
 func (session *Session) pingLoop() error {
+	/* Note: Chrome currently doesn't support server-initiated pings */
+	/* (see http://code.google.com/p/chromium/issues/detail?id=152701) */
+	return nil // Comment this line to enable pings.
 	for {
 		err := session.Ping()
 		if err != nil {

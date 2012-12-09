@@ -38,17 +38,18 @@ URL: http://github.com/shykes/spdy-go
 ## Examples
 
 
+### Serve a web application over spdy
+
+    [Shell A]   $ go run examples/webapp.go -t :8080
+
+    [Chrome]    https://localhost:8080
+
+
 ### Netcat over spdy
 
     [Shell A]   $ echo "Hi from server" | spdycat -l :4242
 
     [Shell B]   $ echo "Hi from client" | spdycat :4242
-
-### Serve a web application over spdy
-
-    [Shell A]   $ go run examples/webapp.go :8080
-
-    [Shell B]   $ spdycat :8080 :path=/
 
 
 ### Stream lots of files to the same recipient
