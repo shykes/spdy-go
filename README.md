@@ -11,7 +11,7 @@ spdy.go is a SPDY implementation for humans, written in Golang. It offers a high
 spdy.go is under active development. It is alpha software and should not be used in production. Contributions and patches are welcome!
 
 Author: Solomon Hykes <solomon@dotcloud.com>
-URL: http://github.com/shykes/spdy.go
+URL: http://github.com/shykes/spdy-go
 
 
 ## Installation

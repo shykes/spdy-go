@@ -13,7 +13,7 @@ package main
 
 import (
     "net/http"
-    "github.com/shykes/spdy.go"
+    "github.com/shykes/spdy-go"
     "flag"
 )
 
