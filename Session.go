@@ -63,6 +63,17 @@ func (session *Session) Close() error {
     return session.conn.Close()
 }
 
+/*
+** Return `true` if reading from the connection fails
+*/
+
+func (session *Session) Closed() bool {
+    _, err := session.conn.Read([]byte{})
+    if err != nil {
+        return true
+    }
+    return false
+}
 
 /*
 ** Compute the ID which should be used to open the next stream 
