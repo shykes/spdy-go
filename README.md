@@ -54,3 +54,23 @@ URL: http://github.com/shykes/spdy.go
 * No support for GOAWAY
 
 * Stream data is buffered with no watermark limit
+
+## Go Setup 101
+
+1. Setup your GO environment:
+
+    $ mkdir ~/go
+    
+    $ export GOPATH=~/go
+    
+    $ export PATH=$PATH:$GOPATH/bin
+
+2. Install the library
+
+    $ go get github.com/shykes/spdy-go
+
+3. Install the spdycat command
+
+    $ cd ~/go/src/github.com/shykes/spdy-go/spdycat
+    
+    $ go install
