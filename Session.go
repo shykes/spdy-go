@@ -34,6 +34,7 @@ type Session struct {
 	conn         net.Conn
 	lastPingId   uint32 // Last (and highest-numbered) ping ID we allocated
 	pings        map[uint32]*Ping
+	closed       bool
 }
 
 /* Create a new Session object */
@@ -51,10 +52,25 @@ func NewSession(conn net.Conn, handler Handler, server bool) (*Session, error) {
 		conn,
 		0,
 		make(map[uint32]*Ping),
+		false,
 	}, nil
 }
 
+func (session *Session) Error(err error) {
+	/* Mark the session as closed before passing the error to the streams,
+	** so that stream handlers can reliably check for session state
+	*/
+	session.Close()
+	if err == io.EOF {
+		err = errors.New("Session closed")
+	}
+	for _, stream := range session.streams {
+		stream.Input.Error(err)
+	}
+}
+
 func (session *Session) Close() error {
+	session.closed = true
 	debug("Session.Close()\n")
 	return session.conn.Close()
 }
@@ -64,11 +80,7 @@ func (session *Session) Close() error {
  */
 
 func (session *Session) Closed() bool {
-	_, err := session.conn.Read([]byte{})
-	if err != nil {
-		return true
-	}
-	return false
+	return session.closed
 }
 
 /*
@@ -122,23 +134,14 @@ func (session *Session) Run() error {
 	pingChan := Promise(func() error { return session.pingLoop() })
 	receiveChan := Promise(func() error { return session.receiveLoop() })
 	for {
+		var err error
 		select {
-		case err := <-pingChan:
-			{
-				if err != nil {
-					debug("Ping failed! Interrupting run loop\n")
-					session.Close()
-					return err
-				}
-			}
-		case err := <-receiveChan:
-			{
-				if err != nil {
-					debug("Receive failed: %s. Interrupting run loop\n", err)
-					session.Close()
-					return err
-				}
-			}
+			case err = <-pingChan:
+			case err = <-receiveChan:
+		}
+		if err != nil {
+			session.Error(err)
+			return err
 		}
 	}
 	return nil
@@ -158,22 +161,12 @@ func (session *Session) NStreams() int {
 ** Listen for new frames and process them
  */
 
-func (session *Session) errorAllStreams(err error) {
-	for _, stream := range session.streams {
-		stream.Input.Error(err)
-	}
-}
 
 func (session *Session) receiveLoop() error {
 	debug("Starting receive loop\n")
 	for {
 		frame, err := session.ReadFrame()
 		if err != nil {
-			if err == io.EOF {
-				session.errorAllStreams(errors.New("Session closed"))
-			} else {
-				session.errorAllStreams(err)
-			}
 			return err
 		}
 		debug("Received frame %s\n", frame)
