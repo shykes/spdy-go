@@ -49,6 +49,16 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
     return stream
 }
 
+func (stream *Stream) RST(code uint32) error {
+    err := errors.New(fmt.Sprintf("Stream reset with code: %v\n", spdy.StatusCode(code)))
+    stream.Input.Error(err)
+    stream.Output.Error(err)
+    return stream.Output.writeFrame(&spdy.RstStreamFrame{
+        StreamId:   stream.Id,
+        Status:     spdy.StatusCode(code),
+    })
+}
+
 
 /*
 ** StreamReader: read data and headers from a stream
