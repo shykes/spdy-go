@@ -12,7 +12,7 @@ import (
 ** its return value
 */
 
-func promise(f func() error) chan error {
+func Promise(f func() error) chan error {
     ch := make(chan error)
     go func() {
         ch <- f()

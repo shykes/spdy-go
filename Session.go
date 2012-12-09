@@ -115,8 +115,8 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
 
 func (session *Session) Run() error {
     debug("Session.Run()")
-    pingChan := promise(func() error { return session.pingLoop() })
-    receiveChan := promise(func() error { return session.receiveLoop() })
+    pingChan := Promise(func() error { return session.pingLoop() })
+    receiveChan := Promise(func() error { return session.receiveLoop() })
     for {
         select {
             case err := <-pingChan: {
