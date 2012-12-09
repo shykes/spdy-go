@@ -41,10 +41,6 @@ URL: http://github.com/shykes/spdy.go
 
 ## Bugs & missing features
 
-* Only supports raw TCP (no TLS)
-
-* No support for compression
-
 * Doesn't send protocol errors in places where it should
 
 * Barely any testing
