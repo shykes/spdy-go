@@ -67,6 +67,4 @@ URL: http://github.com/shykes/spdy.go
 
 3. Install the spdycat command
 
-    $ cd ~/go/src/github.com/shykes/spdy-go/spdycat
-    
-    $ go install
+    $ go get github.com/shykes/spdy-go/spdycat
