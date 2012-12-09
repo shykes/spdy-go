@@ -144,6 +144,16 @@ func (session *Session) Run() error {
 	return nil
 }
 
+
+/*
+** Return the number of open streams
+*/
+
+func (session *Session) NStreams() int {
+	return len(session.streams)
+}
+
+
 /*
 ** Listen for new frames and process them
  */
@@ -178,6 +188,9 @@ func (session *Session) receiveLoop() error {
 			stream.Input.Push(&dframe.Data)
 			if dframe.Flags&spdy.DataFlagFin != 0 {
 				stream.Input.Close()
+				if stream.Output.Closed() {
+					delete(session.streams, stream.Id)
+				}
 			}
 
 			/* FIXME: Did we receive a headers control frame? */
@@ -191,11 +204,19 @@ func (session *Session) receiveLoop() error {
 			// FIXME: notify of new headers?
 			if headersframe.CFHeader.Flags&spdy.ControlFlagFin != 0 {
 				stream.Input.Close()
+				if stream.Output.Closed() {
+					delete(session.streams, stream.Id)
+				}
 			}
 
 			/* Did we receive a syn_stream control frame? */
 		} else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
 			_, exists := session.streams[synframe.StreamId]
+			/* FIXME:
+			* If an endpoint receives a SYN_STREAM with a stream id which is less
+			* than any previously received SYN_STREAM, it MUST issue a session error
+			* (Section 2.4.1) with the status PROTOCOL_ERROR
+			*/
 			if exists { // Protocol error
 				debug("Received syn_stream frame for stream id=%s. Dropping\n", synframe.StreamId)
 				continue
@@ -207,6 +228,9 @@ func (session *Session) receiveLoop() error {
 			updateHeaders(stream.Input.Headers(), &synframe.Headers)
 			if synframe.CFHeader.Flags&spdy.ControlFlagFin != 0 {
 				stream.Input.Close()
+				if stream.Output.Closed() {
+					delete(session.streams, stream.Id)
+				}
 			}
 			/* Run the handler */
 			go func() {
@@ -232,6 +256,9 @@ func (session *Session) receiveLoop() error {
 			/* If FLAG_FIN is set, half-close the stream */
 			if synReplyFrame.CFHeader.Flags&spdy.ControlFlagFin != 0 {
 				stream.Input.Close()
+				if stream.Output.Closed() {
+					delete(session.streams, stream.Id)
+				}
 			}
 		} else if pingFrame, ok := frame.(*spdy.PingFrame); ok {
 			if err := session.handlePingFrame(pingFrame); err != nil {
@@ -244,6 +271,7 @@ func (session *Session) receiveLoop() error {
 				err := errors.New(fmt.Sprintf("Stream reset with status: %v\n", rstFrame.Status))
 				stream.Input.Error(err)
 				stream.Output.Error(err)
+				delete(session.streams, stream.Id)
 			} else {
 				debug("Warning: received RST_STREAM frame for unknown stream id=%d. Dropping\n", rstFrame.StreamId)
 			}
