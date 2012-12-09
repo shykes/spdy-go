@@ -8,6 +8,7 @@ import (
     "code.google.com/p/go.net/spdy"
     "net"
     "net/http"
+    "fmt"
 )
 
 
@@ -244,6 +245,16 @@ func (session *Session) receiveLoop() error {
         } else if pingFrame, ok := frame.(*spdy.PingFrame); ok {
             if err := session.handlePingFrame(pingFrame); err != nil {
                 return err
+            }
+        /* Did we receive a rst_stream frame? */
+        } else if rstFrame, ok := frame.(*spdy.RstStreamFrame); ok {
+            if stream, exists := session.streams[rstFrame.StreamId]; exists {
+                debug("RST_STREAM id=%d\n", stream.Id)
+                err := errors.New(fmt.Sprintf("Stream reset with status: %v\n", rstFrame.Status))
+                stream.Input.Error(err)
+                stream.Output.Error(err)
+            } else {
+                debug("Warning: received RST_STREAM frame for unknown stream id=%d. Dropping\n", rstFrame.StreamId)
             }
         }
     }
