@@ -189,6 +189,9 @@ func (writer *StreamWriter) Headers() *http.Header {
 }
 
 func (writer *StreamWriter) Close() error {
+    if writer.Closed() {
+        return nil
+    }
     debug("[%s] closing output\n", writer.stream.Id)
     /* Send a zero-length data frame with FLAG_FIN set */
     return writer.writeFrame(&spdy.DataFrame{
