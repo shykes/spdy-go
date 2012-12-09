@@ -1,16 +1,13 @@
-
 package spdy
 
 import (
-    "code.google.com/p/go.net/spdy"
-    "io"
     "bytes"
-    "net/http"
+    "code.google.com/p/go.net/spdy"
     "errors"
     "fmt"
+    "io"
+    "net/http"
 )
-
-
 
 type Receiver interface {
     Receive() (*[]byte, error)
@@ -20,13 +17,12 @@ type Sender interface {
     Send(*[]byte) error
 }
 
-
 type Stream struct {
-    session         *Session
-    Id              uint32
-    Input           *StreamReader
-    Output          *StreamWriter
-    IsMine          bool // Was this stream created locally?
+    session *Session
+    Id      uint32
+    Input   *StreamReader
+    Output  *StreamWriter
+    IsMine  bool // Was this stream created locally?
 }
 
 func newStream(session *Session, id uint32, IsMine bool) *Stream {
@@ -38,13 +34,13 @@ func newStream(session *Session, id uint32, IsMine bool) *Stream {
         IsMine,
     }
     stream.Input = &StreamReader{
-        stream:     stream,
-        MQ:         NewMQ(),
-        headers:    http.Header{},
+        stream:  stream,
+        MQ:      NewMQ(),
+        headers: http.Header{},
     }
     stream.Output = &StreamWriter{
-        stream:     stream,
-        headers:    http.Header{},
+        stream:  stream,
+        headers: http.Header{},
     }
     return stream
 }
@@ -54,22 +50,20 @@ func (stream *Stream) RST(code uint32) error {
     stream.Input.Error(err)
     stream.Output.Error(err)
     return stream.Output.writeFrame(&spdy.RstStreamFrame{
-        StreamId:   stream.Id,
-        Status:     spdy.StatusCode(code),
+        StreamId: stream.Id,
+        Status:   spdy.StatusCode(code),
     })
 }
 
-
 /*
 ** StreamReader: read data and headers from a stream
-*/
-
+ */
 
 type StreamReader struct {
     stream  *Stream
     headers http.Header
     *MQ
-    readBuffer  bytes.Buffer
+    readBuffer bytes.Buffer
 }
 
 func (r *StreamReader) Read(data []byte) (int, error) {
@@ -109,7 +103,6 @@ func (reader *StreamReader) WriteTo(dst io.Writer) (int64, error) {
     return written, nil
 }
 
-
 func (reader *StreamReader) Headers() *http.Header {
     return &reader.headers
 }
@@ -133,16 +126,13 @@ func (reader *StreamReader) WaitForHeader(key string) (string, error) {
     return reader.Headers().Get(key), nil
 }
 
-
 func (reader *StreamReader) Push(data *[]byte) error {
     return reader.MQ.Send(data)
 }
 
-
 /*
 ** StreamWriter: write data and headers to a stream
-*/
-
+ */
 
 type StreamWriter struct {
     stream      *Stream
@@ -159,8 +149,8 @@ func (writer *StreamWriter) Send(data *[]byte) error {
     }
     debug("Sending data: %s\n", data)
     return writer.writeFrame(&spdy.DataFrame{
-        StreamId:   writer.stream.Id,
-        Data:       *data,
+        StreamId: writer.stream.Id,
+        Data:     *data,
     })
 }
 
@@ -195,7 +185,6 @@ func (writer *StreamWriter) ReadFrom(src io.Reader) (int64, error) {
     return written, nil
 }
 
-
 func (writer *StreamWriter) Headers() *http.Header {
     return &writer.headers
 }
@@ -207,9 +196,9 @@ func (writer *StreamWriter) Close() error {
     debug("[%s] closing output\n", writer.stream.Id)
     /* Send a zero-length data frame with FLAG_FIN set */
     return writer.writeFrame(&spdy.DataFrame{
-        StreamId:   writer.stream.Id,
-        Data:       []byte{},
-        Flags:      0x0|spdy.DataFlagFin,
+        StreamId: writer.stream.Id,
+        Data:     []byte{},
+        Flags:    0x0 | spdy.DataFlagFin,
     })
 }
 
@@ -221,7 +210,6 @@ func (writer *StreamWriter) Error(err error) {
     writer.closed = true
     writer.err = err
 }
-
 
 func (writer *StreamWriter) SendHeaders(final bool) error {
     // FIXME
@@ -235,9 +223,9 @@ func (writer *StreamWriter) SendHeaders(final bool) error {
         if writer.stream.IsMine {
             // If this is the first message we send and we initiated the stream, send SYN_STREAM + headers
             err := writer.writeFrame(&spdy.SynStreamFrame{
-                    StreamId: writer.stream.Id,
-                    CFHeader: spdy.ControlFrameHeader{Flags: flags},
-                    Headers: writer.headers,
+                StreamId: writer.stream.Id,
+                CFHeader: spdy.ControlFrameHeader{Flags: flags},
+                Headers:  writer.headers,
             })
             if err != nil {
                 return err
@@ -245,9 +233,9 @@ func (writer *StreamWriter) SendHeaders(final bool) error {
         } else {
             // If this is the first message we send and we didn't initiate the stream, send SYN_REPLY + headers
             err := writer.writeFrame(&spdy.SynReplyFrame{
-                CFHeader:       spdy.ControlFrameHeader{Flags: flags},
-                Headers:        writer.headers,
-                StreamId:       writer.stream.Id,
+                CFHeader: spdy.ControlFrameHeader{Flags: flags},
+                Headers:  writer.headers,
+                StreamId: writer.stream.Id,
             })
             if err != nil {
                 return err
@@ -256,9 +244,9 @@ func (writer *StreamWriter) SendHeaders(final bool) error {
     } else {
         // If this is not the first message we send, send HEADERS + headers
         err := writer.writeFrame(&spdy.HeadersFrame{
-            CFHeader:       spdy.ControlFrameHeader{Flags: flags},
-            Headers:        writer.headers,
-            StreamId:       writer.stream.Id,
+            CFHeader: spdy.ControlFrameHeader{Flags: flags},
+            Headers:  writer.headers,
+            StreamId: writer.stream.Id,
         })
         if err != nil {
             return err
@@ -287,9 +275,7 @@ func (writer *StreamWriter) writeFrame(frame spdy.Frame) error {
     return nil
 }
 
-
 func (stream *Stream) Session() *Session {
     // FIXME: simpler to just expose the field
     return stream.session
 }
-

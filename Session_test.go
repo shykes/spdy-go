@@ -1,12 +1,12 @@
 package spdy
 
 import (
-    "testing"
     "bytes"
-    "time"
+    "code.google.com/p/go.net/spdy"
     "net"
     "net/http"
-    "code.google.com/p/go.net/spdy"
+    "testing"
+    "time"
 )
 
 type FakeConn struct {
@@ -33,16 +33,13 @@ func (conn *FakeConn) LocalAddr() net.Addr {
     return &net.TCPAddr{net.ParseIP("0.0.0.0"), 4242}
 }
 
-
 func (conn *FakeConn) RemoteAddr() net.Addr {
     return &net.TCPAddr{net.ParseIP("0.0.0.0"), 4242}
 }
 
-
 func TestDummy(t *testing.T) {
     // Do nothing
 }
-
 
 func TestMQ(t *testing.T) {
     mq := NewMQ()
@@ -80,10 +77,9 @@ func TestMQMultipleSendOneReceive(t *testing.T) {
     }
 }
 
-
 /*
 ** Calling Session.OpenStream() should send a SYN_STREAM frame
-*/
+ */
 
 func TestOpenStream(t *testing.T) {
     conn := new(FakeConn)
@@ -109,8 +105,7 @@ func TestOpenStream(t *testing.T) {
 
 /*
 ** Calling Stream.Output.Close() should send an empty DATA frame with FLAG_FIN=1
-*/
-
+ */
 
 func TestCloseStream(t *testing.T) {
     conn := new(FakeConn)
@@ -132,7 +127,7 @@ func TestCloseStream(t *testing.T) {
         if dataFrame.StreamId != stream.Id {
             t.Errorf("Mismatched stream ID (%d != %d)", dataFrame.StreamId, stream.Id)
         }
-        if dataFrame.Flags & spdy.DataFlagFin == 0 {
+        if dataFrame.Flags&spdy.DataFlagFin == 0 {
             t.Errorf("FLAG_FIN is not set")
         }
     } else {

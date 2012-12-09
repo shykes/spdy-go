@@ -1,19 +1,17 @@
 package main
 
 import (
-    "io"
-    "os"
-    "github.com/shykes/spdy-go"
     "flag"
-    "log"
     "fmt"
-    "strings"
+    "github.com/shykes/spdy-go"
+    "io"
+    "log"
     "net/http"
+    "os"
+    "strings"
 )
 
-
-type Server struct {}
-
+type Server struct{}
 
 func headersString(headers http.Header) string {
     var s string
@@ -25,7 +23,6 @@ func headersString(headers http.Header) string {
     }
     return s
 }
-
 
 func (server *Server) ServeSPDY(stream *spdy.Stream) {
     stream.Output.Headers().Add(":status", "200")
@@ -53,7 +50,6 @@ func processStream(stream *spdy.Stream) {
         stream.Output.Error(err)
     }
 }
-
 
 func main() {
     listen := flag.Bool("l", false, "Listen to <addr>")
@@ -91,4 +87,3 @@ func extractHeaders(args []string) *http.Header {
     }
     return &headers
 }
-

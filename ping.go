@@ -1,9 +1,8 @@
-
 package spdy
 
 import (
-    "time"
     "code.google.com/p/go.net/spdy"
+    "time"
 )
 
 /*
@@ -11,14 +10,13 @@ import (
 **
 ** A record of PING frames received or sent.
 ** (See http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.6.5)
-*/
+ */
 
 type Ping struct {
-    Id      uint32
-    Start   time.Time
-    RTT     time.Duration
+    Id    uint32
+    Start time.Time
+    RTT   time.Duration
 }
-
 
 func (session *Session) handlePingFrame(pingFrame *spdy.PingFrame) error {
     id := pingFrame.Id
@@ -50,15 +48,14 @@ func (session *Session) handlePingFrame(pingFrame *spdy.PingFrame) error {
     return nil
 }
 
-
 /*
 ** Send a new ping frame
-*/
+ */
 
 func (session *Session) Ping() error {
     ping := Ping{
-        Id:     session.nextId(session.lastPingId),
-        Start:  time.Now(),
+        Id:    session.nextId(session.lastPingId),
+        Start: time.Now(),
     }
     debug("Sending PING id=%v\n", ping.Id)
     session.lastPingId = ping.Id
@@ -71,10 +68,9 @@ func (session *Session) Ping() error {
     return nil
 }
 
-
 /*
 ** Send a ping every 30 seconds
-*/
+ */
 
 func (session *Session) pingLoop() error {
     for {
@@ -87,4 +83,3 @@ func (session *Session) pingLoop() error {
     }
     return nil
 }
-

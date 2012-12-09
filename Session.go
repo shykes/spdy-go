@@ -1,21 +1,17 @@
-
-
 package spdy
 
 import (
-    "io"
-    "errors"
     "code.google.com/p/go.net/spdy"
+    "errors"
+    "fmt"
+    "io"
     "net"
     "net/http"
-    "fmt"
 )
-
 
 type Handler interface {
     ServeSPDY(stream *Stream)
 }
-
 
 /*
 ** type Session
@@ -27,19 +23,18 @@ type Handler interface {
 **  >>
 **  (http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-1.2)
 ** 
-*/
+ */
 
 type Session struct {
     *spdy.Framer
-    Server              bool                    // Are we the server? (necessary for stream ID numbering)
-    lastStreamId        uint32                  // Last (and highest-numbered) stream ID we allocated
-    streams             map[uint32] *Stream
-    handler             Handler
-    conn                net.Conn
-    lastPingId          uint32                  // Last (and highest-numbered) ping ID we allocated
-    pings               map[uint32] *Ping
+    Server       bool   // Are we the server? (necessary for stream ID numbering)
+    lastStreamId uint32 // Last (and highest-numbered) stream ID we allocated
+    streams      map[uint32]*Stream
+    handler      Handler
+    conn         net.Conn
+    lastPingId   uint32 // Last (and highest-numbered) ping ID we allocated
+    pings        map[uint32]*Ping
 }
-
 
 /* Create a new Session object */
 func NewSession(conn net.Conn, handler Handler, server bool) (*Session, error) {
@@ -59,8 +54,6 @@ func NewSession(conn net.Conn, handler Handler, server bool) (*Session, error) {
     }, nil
 }
 
-
-
 func (session *Session) Close() error {
     debug("Session.Close()\n")
     return session.conn.Close()
@@ -68,7 +61,7 @@ func (session *Session) Close() error {
 
 /*
 ** Return `true` if reading from the connection fails
-*/
+ */
 
 func (session *Session) Closed() bool {
     _, err := session.conn.Read([]byte{})
@@ -92,8 +85,8 @@ func (session *Session) Closed() bool {
 **    wrap: when a client or server cannot create a new stream id without
 **    exceeding a 31 bit value, it MUST NOT create a new stream.
 ** >>
-*/
- func (session *Session) nextId(lastId uint32) uint32 {
+ */
+func (session *Session) nextId(lastId uint32) uint32 {
     if lastId == 0 {
         if session.Server {
             return 2
@@ -105,7 +98,6 @@ func (session *Session) Closed() bool {
     // (ping IDs are allowed to wrap, but stream IDs aren't)
     return lastId + 2
 }
-
 
 func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
     newId := session.nextId(session.lastStreamId)
@@ -120,12 +112,10 @@ func (session *Session) OpenStream(headers *http.Header) (*Stream, error) {
     return stream, nil
 }
 
-
 /*
 ** Session main loop: run the receive loop and ping loop in parallel,
 ** and return an error if either one fails.
-*/
-
+ */
 
 func (session *Session) Run() error {
     debug("Session.Run()")
@@ -133,14 +123,16 @@ func (session *Session) Run() error {
     receiveChan := Promise(func() error { return session.receiveLoop() })
     for {
         select {
-            case err := <-pingChan: {
+        case err := <-pingChan:
+            {
                 if err != nil {
                     debug("Ping failed! Interrupting run loop\n")
                     session.Close()
                     return err
                 }
             }
-            case err := <-receiveChan: {
+        case err := <-receiveChan:
+            {
                 if err != nil {
                     debug("Receive failed: %s. Interrupting run loop\n", err)
                     session.Close()
@@ -152,14 +144,13 @@ func (session *Session) Run() error {
     return nil
 }
 
-
 /*
 ** Listen for new frames and process them
-*/
+ */
 
 func (session *Session) errorAllStreams(err error) {
     for _, stream := range session.streams {
-            stream.Input.Error(err)
+        stream.Input.Error(err)
     }
 }
 
@@ -185,11 +176,11 @@ func (session *Session) receiveLoop() error {
                 continue
             }
             stream.Input.Push(&dframe.Data)
-            if dframe.Flags & spdy.DataFlagFin != 0 {
+            if dframe.Flags&spdy.DataFlagFin != 0 {
                 stream.Input.Close()
             }
 
-        /* FIXME: Did we receive a headers control frame? */
+            /* FIXME: Did we receive a headers control frame? */
         } else if headersframe, ok := frame.(*spdy.HeadersFrame); ok {
             stream, exists := session.streams[headersframe.StreamId]
             if !exists { // Protocol error
@@ -198,11 +189,11 @@ func (session *Session) receiveLoop() error {
             }
             updateHeaders(stream.Input.Headers(), &headersframe.Headers)
             // FIXME: notify of new headers?
-            if headersframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+            if headersframe.CFHeader.Flags&spdy.ControlFlagFin != 0 {
                 stream.Input.Close()
             }
 
-        /* Did we receive a syn_stream control frame? */
+            /* Did we receive a syn_stream control frame? */
         } else if synframe, ok := frame.(*spdy.SynStreamFrame); ok {
             _, exists := session.streams[synframe.StreamId]
             if exists { // Protocol error
@@ -214,7 +205,7 @@ func (session *Session) receiveLoop() error {
             session.streams[synframe.StreamId] = stream
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synframe.Headers)
-            if synframe.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+            if synframe.CFHeader.Flags&spdy.ControlFlagFin != 0 {
                 stream.Input.Close()
             }
             /* Run the handler */
@@ -224,7 +215,7 @@ func (session *Session) receiveLoop() error {
                 stream.Output.Close()
                 stream.Input.Close()
             }()
-        /* Did we receive a syn_reply control frame */
+            /* Did we receive a syn_reply control frame */
         } else if synReplyFrame, ok := frame.(*spdy.SynReplyFrame); ok {
             id := synReplyFrame.StreamId
             if !session.isLocalId(id) {
@@ -239,14 +230,14 @@ func (session *Session) receiveLoop() error {
             /* Set the initial headers */
             updateHeaders(stream.Input.Headers(), &synReplyFrame.Headers)
             /* If FLAG_FIN is set, half-close the stream */
-            if synReplyFrame.CFHeader.Flags & spdy.ControlFlagFin != 0 {
+            if synReplyFrame.CFHeader.Flags&spdy.ControlFlagFin != 0 {
                 stream.Input.Close()
             }
         } else if pingFrame, ok := frame.(*spdy.PingFrame); ok {
             if err := session.handlePingFrame(pingFrame); err != nil {
                 return err
             }
-        /* Did we receive a rst_stream frame? */
+            /* Did we receive a rst_stream frame? */
         } else if rstFrame, ok := frame.(*spdy.RstStreamFrame); ok {
             if stream, exists := session.streams[rstFrame.StreamId]; exists {
                 debug("RST_STREAM id=%d\n", stream.Id)
@@ -261,16 +252,13 @@ func (session *Session) receiveLoop() error {
     return nil
 }
 
-
-
-
 /*
  * Return true if it's legal for `id` to be locally created
  * (eg. even-numbered if we're the server, odd-numbered if we're the client)
  */
 func (session *Session) isLocalId(id uint32) bool {
     if session.Server {
-        return (id % 2 == 0) /* Return true if id is even */
+        return (id%2 == 0) /* Return true if id is even */
     }
-    return (id % 2 != 0) /* Return true if id is odd */
+    return (id%2 != 0) /* Return true if id is odd */
 }

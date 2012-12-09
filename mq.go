@@ -1,4 +1,3 @@
-
 package spdy
 
 import (
@@ -6,19 +5,17 @@ import (
     "io"
 )
 
-
 /*
 ** A buffered message queue
-*/
-
+ */
 
 type MQ struct {
-    messages    []interface{}
-    sync        chan error
-    closed      bool
+    messages []interface{}
+    sync     chan error
+    closed   bool
 }
 
-func NewMQ() (*MQ) {
+func NewMQ() *MQ {
     return &MQ{[]interface{}{}, nil, false}
 }
 
@@ -63,7 +60,6 @@ func (mq *MQ) Send(msg interface{}) error {
     return nil
 }
 
-
 func (mq *MQ) Close() {
     mq.Error(io.EOF)
 }
@@ -74,7 +70,6 @@ func (mq *MQ) Error(err error) {
         mq.sync <- err
     }
 }
-
 
 func (mq *MQ) Closed() bool {
     return mq.closed

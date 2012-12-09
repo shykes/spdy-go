@@ -1,11 +1,9 @@
-
 package spdy
 
 import (
-    "net"
     "log"
+    "net"
 )
-
 
 /* Listen on a TCP port, and pass new connections to a handler */
 func ListenAndServeTCP(addr string, handler Handler) error {
@@ -15,7 +13,6 @@ func ListenAndServeTCP(addr string, handler Handler) error {
     }
     return ListenAndServe(listener, handler)
 }
-
 
 func ListenAndServe(listener net.Listener, handler Handler) error {
     debug("Listening to %s\n", listener.Addr())
@@ -33,7 +30,6 @@ func ListenAndServe(listener net.Listener, handler Handler) error {
     }
     return nil
 }
-
 
 /* Connect to a remote tcp server and return a new Session */
 
