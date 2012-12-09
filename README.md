@@ -14,6 +14,27 @@ Author: Solomon Hykes <solomon@dotcloud.com>
 URL: http://github.com/shykes/spdy.go
 
 
+## Installation
+
+0. Install GO on your computer (http://golang.org/doc/install)
+
+1. Setup your GO environment:
+
+    $ mkdir ~/go
+    
+    $ export GOPATH=~/go
+    
+    $ export PATH=$PATH:$GOPATH/bin
+
+2. Install the library
+
+    $ go get github.com/shykes/spdy-go
+
+3. Install the spdycat command
+
+    $ go get github.com/shykes/spdy-go/spdycat
+
+
 ## Examples
 
 
@@ -51,20 +72,3 @@ URL: http://github.com/shykes/spdy.go
 
 * Stream data is buffered with no watermark limit
 
-## Go Setup 101
-
-1. Setup your GO environment:
-
-    $ mkdir ~/go
-    
-    $ export GOPATH=~/go
-    
-    $ export PATH=$PATH:$GOPATH/bin
-
-2. Install the library
-
-    $ go get github.com/shykes/spdy-go
-
-3. Install the spdycat command
-
-    $ go get github.com/shykes/spdy-go/spdycat
