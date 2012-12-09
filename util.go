@@ -1,9 +1,9 @@
 package spdy
 
 import (
-    "log"
-    "net/http"
-    "os"
+	"log"
+	"net/http"
+	"os"
 )
 
 /*
@@ -12,11 +12,11 @@ import (
  */
 
 func Promise(f func() error) chan error {
-    ch := make(chan error)
-    go func() {
-        ch <- f()
-    }()
-    return ch
+	ch := make(chan error)
+	go func() {
+		ch <- f()
+	}()
+	return ch
 }
 
 /*
@@ -24,11 +24,11 @@ func Promise(f func() error) chan error {
  */
 
 func updateHeaders(headers *http.Header, newHeaders *http.Header) {
-    for key, values := range *newHeaders {
-        for _, value := range values {
-            headers.Add(key, value)
-        }
-    }
+	for key, values := range *newHeaders {
+		for _, value := range values {
+			headers.Add(key, value)
+		}
+	}
 }
 
 /*
@@ -38,13 +38,13 @@ func updateHeaders(headers *http.Header, newHeaders *http.Header) {
 var DEBUG bool = false
 
 func debug(msg string, args ...interface{}) {
-    if DEBUG || (os.Getenv("DEBUG") != "") {
-        log.Printf(msg, args...)
-    }
+	if DEBUG || (os.Getenv("DEBUG") != "") {
+		log.Printf(msg, args...)
+	}
 }
 
 type HandlerFunc func(*Stream)
 
 func (f *HandlerFunc) ServeSPDY(s *Stream) {
-    (*f)(s)
+	(*f)(s)
 }
