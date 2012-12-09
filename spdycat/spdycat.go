@@ -1,11 +1,10 @@
-
 package main
 
 import (
     "io"
     "bufio"
     "os"
-    "github.com/shykes/spdy.go"
+    "github.com/shykes/spdy-go"
     "flag"
     "log"
     "fmt"
