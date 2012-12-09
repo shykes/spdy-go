@@ -3,6 +3,8 @@
 package spdy
 
 import (
+    "io"
+    "errors"
     "code.google.com/p/go.net/spdy"
     "net"
     "net/http"
@@ -154,13 +156,21 @@ func (session *Session) Run() error {
 ** Listen for new frames and process them
 */
 
+func (session *Session) errorAllStreams(err error) {
+    for _, stream := range session.streams {
+            stream.Input.Error(err)
+    }
+}
+
 func (session *Session) receiveLoop() error {
     debug("Starting receive loop\n")
     for {
         frame, err := session.ReadFrame()
         if err != nil {
-            for _, stream := range session.streams {
-                stream.Input.Error(err)
+            if err == io.EOF {
+                session.errorAllStreams(errors.New("Session closed"))
+            } else {
+                session.errorAllStreams(err)
             }
             return err
         }
