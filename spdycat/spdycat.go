@@ -53,21 +53,32 @@ func processStream(stream *spdy.Stream) {
 
 func main() {
 	listen := flag.Bool("l", false, "Listen to <addr>")
+	tls := flag.Bool("t", false, "Enable TLS")
+	cert := flag.String("cert", "cert.pem", "Filename to a TLS certificate (use in combination with -t and -l)")
+	key  := flag.String("key", "key.pem", "Filename to a TLS private key (use in combination with -t and -l)")
+
 	flag.Parse()
 	addr := flag.Args()[0]
 	headers := extractHeaders(flag.Args()[1:])
 	server := &Server{} // FIXME: find another name for Server since it is used by both sides
 	if *listen {
-		err := spdy.ListenAndServeTCP(addr, server)
-		/*
-		 * // Uncomment to serve over TLS instad of raw TCP
-		 * err := spdy.ListenAndServeTLS(addr, "cert.pem", "key.pem", server)
-		 */
+		var err error
+		if *tls {
+                    err = spdy.ListenAndServeTLS(addr, *cert, *key, server)
+		} else {
+		    err = spdy.ListenAndServeTCP(addr, server)
+		}
 		if err != nil {
 			log.Fatal("Listen: %s", err)
 		}
 	} else {
-		session, err := spdy.DialTCP(addr, server)
+		var err error
+		var session *spdy.Session
+		if *tls {
+		    session, err = spdy.DialTLS(addr, server)
+		} else {
+		    session, err = spdy.DialTCP(addr, server)
+		}
 		if err != nil {
 			log.Fatal("Error connecting: %s", err)
 		}
