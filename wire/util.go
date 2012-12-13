@@ -1,9 +1,9 @@
-package spdy
+package wire
 
 import (
-	"log"
-	"net/http"
 	"os"
+	"log"
+	"io"
 )
 
 /*
@@ -20,18 +20,6 @@ func Promise(f func() error) chan error {
 }
 
 /*
-** Add the contents of `newHeaders` to `headers`
- */
-
-func updateHeaders(headers *http.Header, newHeaders *http.Header) {
-	for key, values := range *newHeaders {
-		for _, value := range values {
-			headers.Add(key, value)
-		}
-	}
-}
-
-/*
 ** Output a message only if the DEBUG env variable is set
  */
 
@@ -43,8 +31,39 @@ func debug(msg string, args ...interface{}) {
 	}
 }
 
+
 type HandlerFunc func(*Stream)
 
 func (f *HandlerFunc) ServeSPDY(s *Stream) {
 	(*f)(s)
+}
+
+
+
+type DummyHandler struct {}
+
+func (f *DummyHandler) ServeSPDY(s *Stream) {
+	for {
+		_, err := s.Input.ReadFrame()
+		if err != nil {
+			return
+		}
+	}
+}
+
+
+func Copy(w FrameWriter, r FrameReader) error {
+	for {
+		frame, err := r.ReadFrame()
+		if err != nil {
+			return err
+		}
+		err = w.WriteFrame(frame)
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-package spdy
+package wire
 
 import (
 	"crypto/tls"
@@ -36,10 +36,5 @@ func DialTLS(addr string, handler Handler) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	session, err := NewSession(conn, handler, false)
-	if err != nil {
-		return nil, err
-	}
-	go session.Run()
-	return session, nil
+	return Serve(conn, handler, false)
 }
