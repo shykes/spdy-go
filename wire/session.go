@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 )
 
 /*
@@ -23,7 +24,7 @@ import (
 type Session struct {
 	Framer
 	Server       bool   // Are we the server? (necessary for stream ID numbering)
-	lastStreamId uint32 // Last (and highest-numbered) stream ID we allocated
+	lastStreamIdOut uint32 // Last (and highest-numbered) stream ID we allocated
 	lastStreamIdIn	uint32 // Last (and highest-numbered) stream ID we received
 	streams      map[uint32]*Stream
 	handler      Handler
@@ -51,11 +52,8 @@ func (session *Session) Error(err error) {
 	/* Mark the session as closed before passing the error to the streams,
 	** so that stream handlers can reliably check for session state
 	*/
-	if err == io.EOF {
-		err = errors.New("Session closed")
-	}
-	for _, stream := range session.streams {
-		stream.Input.Error(err)
+	for id := range session.streams {
+		session.CloseStream(id)
 	}
 }
 
@@ -82,8 +80,8 @@ func (session *Session) Closed() bool {
 **    exceeding a 31 bit value, it MUST NOT create a new stream.
 ** >>
  */
-func (session *Session) nextId(lastId uint32) uint32 {
-	if lastId == 0 {
+func (session *Session) nextIdOut() uint32 {
+	if session.lastStreamIdOut == 0 {
 		if session.Server {
 			return 2
 		} else {
@@ -92,44 +90,77 @@ func (session *Session) nextId(lastId uint32) uint32 {
 	}
 	// FIXME: optionally return an error on wrap
 	// (ping IDs are allowed to wrap, but stream IDs aren't)
-	return lastId + 2
+	return session.lastStreamIdOut + 2
 }
+
+func (session *Session) nextIdIn() uint32 {
+	if session.lastStreamIdIn == 0 {
+		if session.Server {
+			return 1
+		} else {
+			return 2
+		}
+	}
+	return session.lastStreamIdIn + 2
+}
+
+/*
+** OpenStream() initiates a new local stream. It does not send SYN_STREAM or
+** any other frame. That is the responsibility of the caller. 
+*/
 
 func (session *Session) OpenStream() (*Stream, error) {
-	newId := session.nextId(session.lastStreamId)
-	stream := session.newStream(newId)
-	session.lastStreamId = newId
-	session.streams[newId] = stream
-	return stream, nil
+	newId := session.nextIdOut()
+	if err := session.newStream(newId, true); err != nil {
+		return nil, err
+	}
+	return session.streams[newId], nil
 }
 
-func (session *Session) serveStream(id uint32) {
-	if session.isLocalId(id) {
-		// FIXME: send protocol error
-		return
+
+/*
+ * Create a new stream and register it at `id` in `session`
+ *
+ * If `id` is invalid or already registered, the call will fail.
+ */
+
+func (session *Session) newStream(id uint32, local bool) error {
+	/* Is this ID valid? */
+	if local {
+		if !session.isLocalId(id) || id != session.nextIdOut() {
+			return errors.New("Invalid local stream id")
+		}
+	} else {
+		if session.isLocalId(id) || id != session.nextIdIn() {
+			return errors.New("Invalid remote stream id")
+		}
 	}
-	if id <= session.lastStreamIdIn {
-		// FIXME: send protocol error
-		return
+	debug("ID=%d (isLocalID: %v) local=%v: ok", id, session.isLocalId(id), local)
+	/* Is this ID already in use? */
+	if _, alreadyExists := session.streams[id]; alreadyExists {
+		return errors.New(fmt.Sprintf("Stream %d already exists", id))
 	}
-	stream := session.newStream(id)
-	session.lastStreamIdIn = id
+	stream := NewStream(id, local)
 	session.streams[id] = stream
-}
-
-func (session *Session) newStream(id uint32) *Stream {
-	stream := &Stream{
-		Id:	id,
-		Input:	NewChanFramer(),
-		Output:	NewChanFramer(),
+	if local {
+		session.lastStreamIdOut = id
+	} else {
+		session.lastStreamIdIn = id
 	}
+	/* Copy stream output to session output */
 	go func() {
-		if err := Copy(session.Framer, stream.Output); err != nil {
+		err := Copy(session, stream.Output)
+		/* Close the stream if there's an error */
+		if err != nil {
+			session.CloseStream(id)
+		}
+		/* If stream is already half-closed, close it */
+		if stream.Input.Closed() {
 			session.CloseStream(id)
 		}
 	}()
 	go session.handler.ServeSPDY(stream)
-	return stream
+	return nil
 }
 
 func (session *Session) CloseStream(id uint32) error {
@@ -173,6 +204,59 @@ func (session *Session) NStreams() int {
 }
 
 
+
+func (session *Session) processFrame(frame spdy.Frame) {
+	/* Is this frame stream-specific? */
+	if streamId := FrameStreamId(frame); streamId != 0 {
+		/* SYN_STREAM frame: create the stream */
+		if _, ok := frame.(*spdy.SynStreamFrame); ok {
+			debug("SYN_STREAM: creating new stream")
+			if err := session.newStream(streamId, false); err != nil {
+				/* protocol error */
+				debug("Protocol error")
+				session.WriteFrame(&spdy.RstStreamFrame{
+					StreamId: streamId,
+					Status: spdy.ProtocolError,
+				})
+				return
+			}
+		}
+		stream, exists := session.streams[streamId]
+		if !exists {
+			/* protocol error */
+			debug("Protocol error")
+			session.WriteFrame(&spdy.RstStreamFrame{
+				StreamId: streamId,
+				Status: spdy.ProtocolError,
+			})
+			return
+		}
+		debug("Sending frame %v to stream %d", frame, streamId)
+		err := stream.Input.WriteFrame(frame)
+		debug("done")
+		if err == io.EOF {
+			debug("Stream %d input closed", streamId)
+			/* If stream is already half-closed, close it */
+			if stream.Output.Closed() {
+				debug("Stream %d output was already closed, de-registering", streamId)
+				session.CloseStream(streamId)
+			}
+		} else if err != nil {
+		/* Close the stream if there's an error */
+			session.CloseStream(streamId)
+			return
+		}
+	/* Is this frame session-wide? */
+	} else {
+		switch frame.(type) {
+			case *spdy.SettingsFrame:	debug("SETTINGS\n")
+			case *spdy.NoopFrame:		debug("NOOP\n")
+			case *spdy.PingFrame:		debug("PING\n")
+			case *spdy.GoAwayFrame:		debug("GOAWAY\n")
+		}
+	}
+}
+
 /*
 ** Listen for new frames and process them
  */
@@ -185,35 +269,7 @@ func (session *Session) receiveLoop() error {
 			return err
 		}
 		debug("Received frame %s\n", rawframe)
-		/* Is this frame stream-specific? */
-		if streamId := FrameStreamId(rawframe); streamId != 0 {
-			/* SYN_STREAM frame: create the stream */
-			if _, ok := rawframe.(*spdy.SynStreamFrame); ok {
-				session.serveStream(streamId)
-			}
-			stream, exists := session.streams[streamId]
-			if !exists {
-				debug("Received frame for inactive stream id %v. Dropping.\n", streamId)
-				continue
-			}
-			err := stream.Input.WriteFrame(rawframe)
-			if err != nil {
-				session.CloseStream(streamId)
-				continue
-			}
-			/* RST_STREAM frame: destroy the stream */
-			if _, ok := rawframe.(*spdy.RstStreamFrame); ok {
-				session.CloseStream(streamId)
-			}
-		/* Is this frame session-wide? */
-		} else {
-			switch rawframe.(type) {
-				case *spdy.SettingsFrame:	debug("SETTINGS\n")
-				case *spdy.NoopFrame:		debug("NOOP\n")
-				case *spdy.PingFrame:		debug("PING\n")
-				case *spdy.GoAwayFrame:		debug("GOAWAY\n")
-			}
-		}
+		session.processFrame(rawframe)
 	}
 	return nil
 }
@@ -246,15 +302,30 @@ func FrameStreamId(rawframe spdy.Frame) uint32 {
 	return 0
 }
 
+/*
+ * Returns true if a given frame's FIN flag is set, false otherwise.
+ */
+
+func FrameFinFlag(rawframe spdy.Frame) bool {
+	switch f := rawframe.(type) {
+		case *spdy.DataFrame:		return f.Flags&spdy.DataFlagFin != 0
+		case *spdy.SynReplyFrame:	return f.CFHeader.Flags&spdy.ControlFlagFin != 0
+		case *spdy.SynStreamFrame:	return f.CFHeader.Flags&spdy.ControlFlagFin != 0
+		case *spdy.HeadersFrame:	return f.CFHeader.Flags&spdy.ControlFlagFin != 0
+	}
+	return false
+}
 
 
 /*
-** A stream is just a place holder for an id, frame reader and frame writer.
-*/
+ * Return a frame's headers if it can carry any. Return nil otherwise.
+ */
 
-type Stream struct {
-	Id      uint32
-	Input	*ChanFramer
-	Output	*ChanFramer
+func FrameHeaders(frame spdy.Frame) *http.Header {
+	switch f := frame.(type) {
+		case *spdy.HeadersFrame:	return &f.Headers
+		case *spdy.SynStreamFrame:	return &f.Headers
+		case *spdy.SynReplyFrame:	return &f.Headers
+	}
+	return nil
 }
-

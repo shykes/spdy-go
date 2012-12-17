@@ -4,6 +4,7 @@ import (
 	"os"
 	"log"
 	"io"
+	"net/http"
 )
 
 /*
@@ -66,4 +67,17 @@ func Copy(w FrameWriter, r FrameReader) error {
 		}
 	}
 	return nil
+}
+
+
+/*
+** Add the contents of `newHeaders` to `headers`
+ */
+
+func UpdateHeaders(headers *http.Header, newHeaders *http.Header) {
+	for key, values := range *newHeaders {
+		for _, value := range values {
+			headers.Add(key, value)
+		}
+	}
 }
