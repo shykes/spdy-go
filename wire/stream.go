@@ -61,6 +61,11 @@ func NewHalfStream(s *Stream) *HalfStream {
 }
 
 func (s *HalfStream) WriteFrame(frame spdy.Frame) error {
+	err := s.ChanFramer.WriteFrame(frame)
+	if err != nil {
+		return err
+	}
+	s.nFrames += 1
 	/* If we sent a frame with FLAG_FIN, mark the output as closed */
 	if FrameFinFlag(frame) {
 		s.Close()
@@ -73,8 +78,7 @@ func (s *HalfStream) WriteFrame(frame spdy.Frame) error {
 	if _, isRst := frame.(*spdy.RstStreamFrame); isRst {
 		s.stream.Close()
 	}
-	s.nFrames += 1
-	return s.ChanFramer.WriteFrame(frame)
+	return nil
 }
 
 
@@ -84,9 +88,9 @@ type StreamInput struct {
 
 
 func (s *StreamInput) WriteFrame(frame spdy.Frame) error {
-	debug("[StreamInput.WriteFrame]")
+	debug("Sending frame to stream input (id=%d)\n", s.stream.Id)
 	if s.Closed() {
-		debug("[StreamInput.WriteFrame] input is closed")
+		debug("Stream input is already closed")
 		/*
 		 *                      "An endpoint MUST NOT send a RST_STREAM in
 		 * response to an RST_STREAM, as doing so would lead to RST_STREAM
@@ -99,11 +103,9 @@ func (s *StreamInput) WriteFrame(frame spdy.Frame) error {
 		}
 		return nil
 	}
-	debug("[StreamInput.WriteFrame] checking frame type")
 	switch frame.(type) {
 		case *spdy.SynStreamFrame: {
 			if s.nFrames > 0 || s.stream.local {
-				debug("[StreamInput.WriteFrame] synstream at the wrong time")
 				s.stream.ProtocolError()
 				return nil
 				// ("Received invalid SYN_STREAM frame")
