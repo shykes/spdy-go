@@ -56,6 +56,7 @@ func NewHalfStream(s *Stream) *HalfStream {
 	return &HalfStream{
 		stream:		s,
 		ChanFramer:	NewChanFramer(),
+		Headers:	http.Header{},
 	}
 }
 
