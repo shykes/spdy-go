@@ -167,22 +167,19 @@ func (session *Session) CloseStream(id uint32) error {
 }
 
 /*
-** Session main loop: run the receive loop and ping loop in parallel,
-** and return an error if either one fails.
+** Listen for new frames and process them
  */
 
 func (session *Session) run() error {
-	debug("Session.run()")
-	receiveChan := Promise(func() error { return session.receiveLoop() })
+	debug("Starting receive loop\n")
 	for {
-		var err error
-		select {
-			case err = <-receiveChan:
-		}
+		rawframe, err := session.ReadFrame()
 		if err != nil {
 			session.Close()
 			return err
 		}
+		debug("Received frame %s\n", rawframe)
+		session.processFrame(rawframe)
 	}
 	return nil
 }
@@ -249,24 +246,6 @@ func (session *Session) processFrame(frame spdy.Frame) {
 		}
 	}
 }
-
-/*
-** Listen for new frames and process them
- */
-
-func (session *Session) receiveLoop() error {
-	debug("Starting receive loop\n")
-	for {
-		rawframe, err := session.ReadFrame()
-		if err != nil {
-			return err
-		}
-		debug("Received frame %s\n", rawframe)
-		session.processFrame(rawframe)
-	}
-	return nil
-}
-
 
 /*
  * Return true if it's legal for `id` to be locally created
