@@ -30,7 +30,6 @@ type Session struct {
 	handler      Handler
 	conn         net.Conn
 	closed       bool
-	err	     error
 }
 
 
@@ -48,21 +47,15 @@ func NewSession(framer Framer, handler Handler, server bool) *Session {
 	return session
 }
 
-func (session *Session) Error(err error) {
-	/* Mark the session as closed before passing the error to the streams,
-	** so that stream handlers can reliably check for session state
-	*/
+func (session *Session) Close() {
+	session.closed = true
 	for id := range session.streams {
 		session.CloseStream(id)
 	}
 }
 
-func (session *Session) Close() {
-	session.Error(io.EOF)
-}
-
 func (session *Session) Closed() bool {
-	return session.err != nil
+	return session.closed
 }
 
 /*
@@ -187,7 +180,7 @@ func (session *Session) run() error {
 			case err = <-receiveChan:
 		}
 		if err != nil {
-			session.Error(err)
+			session.Close()
 			return err
 		}
 	}
