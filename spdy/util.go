@@ -155,6 +155,28 @@ func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
 }
 
 
+func Split(src FrameReader, data FrameWriter, headers FrameWriter, control FrameWriter) error {
+	for {
+		frame, err := src.ReadFrame()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+		switch frame.(type) {
+			case *DataFrame:	err = data.WriteFrame(frame)
+			case *HeadersFrame:	err = headers.WriteFrame(frame)
+			default:		err = control.WriteFrame(frame)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+
+
 /*
 ** Add the contents of `newHeaders` to `headers`
  */
