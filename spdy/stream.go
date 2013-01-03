@@ -104,6 +104,22 @@ func (s *Stream) WriteDataFrame(data []byte, fin bool) error {
 	})
 }
 
+func (s *Stream) CopyFrom(src io.Reader) error {
+	data := make([]byte, 4096)
+	for {
+		n, err := src.Read(data)
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if err := s.WriteDataFrame(data[:n], false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Stream) Rst(status StatusCode) error {
 	return s.Output.WriteFrame(&RstStreamFrame{StreamId: s.Id, Status: status})
 }
