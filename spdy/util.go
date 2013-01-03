@@ -114,6 +114,24 @@ func Copy(w FrameWriter, r FrameReader) error {
 	return nil
 }
 
+func CopyBytes(dst io.Writer, src FrameReader) error {
+	for {
+		frame, err := src.ReadFrame()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		switch f := frame.(type) {
+			case *DataFrame: {
+				if _, err := dst.Write(f.Data); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
 
 func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
 	Ab, Ba := func() error {return Copy(a, b)}, func() error {return Copy(b, a)}
