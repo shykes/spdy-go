@@ -77,6 +77,21 @@ func (s *Stream) Syn(headers *http.Header, fin bool) error {
 	})
 }
 
+func (s *Stream) WriteHeadersFrame(headers *http.Header, fin bool) error {
+	if headers == nil {
+		headers = &http.Header{}
+	}
+	var flags ControlFlags
+	if fin {
+		flags = ControlFlagFin
+	}
+	return s.Output.WriteFrame(&HeadersFrame{
+		StreamId:	s.Id,
+		Headers:	*headers,
+		CFHeader:	ControlFrameHeader{Flags:flags},
+	})
+}
+
 func (s *Stream) WriteDataFrame(data []byte, fin bool) error {
 	var flags DataFlags
 	if fin {
