@@ -114,14 +114,9 @@ func Copy(w FrameWriter, r FrameReader) error {
 	return nil
 }
 
-func debugCopy(a FrameReadWriter, b FrameReadWriter, name string) error {
-	debug("START COPY %s", name)
-	defer debug("END   COPY %s", name)
-	return Copy(a, b)
-}
 
 func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
-	Ab, Ba := func() error {return debugCopy(a, b, "A->B")}, func() error {return debugCopy(b, a, "B->A")}
+	Ab, Ba := func() error {return Copy(a, b)}, func() error {return Copy(b, a)}
 	promiseAb, promiseBa := Promise(Ab), Promise(Ba)
 	if wait {
 		debug("[SPLICE] Waiting for both copies to complete...\n")
