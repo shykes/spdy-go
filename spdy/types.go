@@ -15,6 +15,11 @@ import (
 	"net/http"
 )
 
+type Handler interface {
+	ServeSPDY(*Stream)
+}
+
+
 //  Data Frame Format
 //  +----------------------------------+
 //  |0|       Stream-ID (31bits)       |
@@ -165,6 +170,9 @@ const MaxDataLength = 1<<24 - 1
 // Framer to read and write it.
 type Frame interface {
 	write(f *Framer) error
+	GetStreamId() uint32
+	GetHeaders() *http.Header
+	GetFinFlag() bool
 }
 
 // ControlFrameHeader contains all the fields in a control frame header,
@@ -340,6 +348,19 @@ var invalidRespHeaders = map[string]bool{
 	"Connection":        true,
 	"Keep-Alive":        true,
 	"Transfer-Encoding": true,
+}
+
+type FrameReader interface {
+	ReadFrame() (Frame, error)
+}
+
+type FrameWriter interface {
+	WriteFrame(Frame) error
+}
+
+type FrameReadWriter interface {
+	FrameReader
+	FrameWriter
 }
 
 // Framer handles serializing/deserializing SPDY frames, including compressing/
