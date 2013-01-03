@@ -20,7 +20,7 @@ func DialTCP(addr string, handler Handler) (*Session, error) {
 	debug("Connecting to %s\n", addr)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	return Serve(conn, handler, false)
 }
