@@ -2,6 +2,7 @@ package spdy
 
 import (
 	"time"
+	"net/http"
 )
 
 type TestSession struct {
@@ -29,12 +30,12 @@ func NewPipe() *Pipe {
 }
 
 
-func NewTestSession(h func(*Stream), server bool) *TestSession {
+func NewTestSession(h http.HandlerFunc, server bool) *TestSession {
 	var handler Handler
 	if h == nil {
 		handler = &DummyHandler{}
 	} else {
-		h := HandlerFunc(h)
+		h := http.HandlerFunc(h)
 		handler = &h
 	}
 	pipe := NewPipe()

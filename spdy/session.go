@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 )
 
 /*
@@ -33,13 +34,13 @@ type Session struct {
 	lastStreamIdOut uint32 // Last (and highest-numbered) stream ID we allocated
 	lastStreamIdIn	uint32 // Last (and highest-numbered) stream ID we received
 	streams      map[uint32]*Stream
-	handler      Handler
+	handler      http.Handler
 	conn         net.Conn
 	closed       bool
 }
 
 
-func NewSession(framer FrameReadWriter, handler Handler, server bool) *Session {
+func NewSession(framer FrameReadWriter, handler http.Handler, server bool) *Session {
 	session := &Session{
 		FrameReadWriter:	framer,
 		Server:		server,
@@ -220,9 +221,7 @@ func (session *Session) processFrame(frame Frame) {
 				})
 				return
 			} else {
-				if session.handler != nil {
-					go session.ServeSPDY(stream)
-				}
+				go stream.Serve(session.handler)
 			}
 		}
 		stream, exists := session.streams[streamId]
@@ -260,21 +259,6 @@ func (session *Session) processFrame(frame Frame) {
 			default:			debug("Unknown frame type!")
 		}
 	}
-}
-
-func (session *Session) ServeSPDY(stream *Stream) {
-	if session.handler == nil {
-		stream.Rst(RefusedStream)
-		return
-	}
-	session.handler.ServeSPDY(stream)
-	debug("Handler returned for stream id %d. Cleaning up.", stream.Id)
-	stream.WriteDataFrame(nil, true) // Close the stream in case the handler hasn't
-	err := Copy(nil, stream.Input) // Drain all remaining input
-	if err != nil {
-		debug("Error while draining stream id %d: %s", stream.Id, err)
-	}
-	debug("Done cleaning up for stream id %d", stream.Id)
 }
 
 /*

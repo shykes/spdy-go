@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"errors"
 	"io"
+	"io/ioutil"
 )
 
 
@@ -128,6 +129,59 @@ func (s *Stream) ProtocolError() error {
 	return s.Rst(ProtocolError)
 }
 
+func (stream *Stream) Serve(handler http.Handler) {
+	debug("Running handler")
+	if handler == nil {
+		stream.Rst(RefusedStream)
+		return
+	}
+	w := &ResponseWriter{Stream: stream}
+	r, err := stream.ParseHTTPRequest(nil);
+	if err != nil {
+		// FIXME: send error
+		debug("Error parsing http request: %s\n", err)
+		return
+	}
+	debug("[%d] Running handler\n", stream.Id)
+	handler.ServeHTTP(w, r)
+	debug("Handler returned for stream id %d. Cleaning up.", stream.Id)
+	stream.WriteDataFrame(nil, true) // Close the stream in case the handler hasn't
+	_, err = io.Copy(ioutil.Discard, r.Body) // Drain all remaining input
+	if err != nil {
+		debug("Error while draining stream id %d: %s", stream.Id, err)
+	}
+	debug("Done cleaning up for stream id %d", stream.Id)
+}
+
+func (s *Stream) ParseHTTPRequest(drain FrameWriter) (*http.Request, error) {
+	if s.Input.nFramesOut > 0 {
+		return nil, errors.New("Can't parse HTTP request: first SPDY frame already read")
+	}
+	frame, err := s.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	headers := frame.GetHeaders()
+	method := headers.Get("method")
+	if method == "" {
+		method = "GET"
+	}
+	path := headers.Get("url")
+	if path == "" {
+		path = "/"
+	}
+	bodyReader, bodyWriter := io.Pipe()
+	go func() {
+		Split(s.Input, &DataWriter{bodyWriter}, drain, drain)
+		bodyWriter.Close()
+	}()
+	r, err := http.NewRequest(method, path, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	UpdateHeaders(&r.Header, headers)
+	return r, nil
+}
 
 func (s *Stream) Close() {
 	s.Input.HalfStream.Close()
@@ -139,7 +193,8 @@ type HalfStream struct {
 	stream *Stream
 	*ChanFramer
 	Headers	http.Header
-	nFrames	uint32
+	nFramesIn	uint32
+	nFramesOut	uint32
 }
 
 func NewHalfStream(s *Stream) *HalfStream {
@@ -150,11 +205,21 @@ func NewHalfStream(s *Stream) *HalfStream {
 	}
 }
 
+
+func (s *HalfStream) ReadFrame() (Frame, error) {
+	frame, err := s.ChanFramer.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	s.nFramesOut += 1
+	return frame, nil
+}
+
 func (s *HalfStream) WriteFrame(frame Frame) error {
 	if err := s.ChanFramer.WriteFrame(frame); err != nil {
 		return err
 	}
-	s.nFrames += 1
+	s.nFramesIn += 1
 	/* If we sent a frame with FLAG_FIN, mark the output as closed */
 	if frame.GetFinFlag() {
 		s.Close()
@@ -195,7 +260,7 @@ func (s *StreamInput) WriteFrame(frame Frame) error {
 	}
 	switch frame.(type) {
 		case *SynStreamFrame: {
-			if s.nFrames > 0 || s.stream.local {
+			if s.nFramesIn > 0 || s.stream.local {
 				debug("[StreamInput.WriteFrame] synstream at the wrong time")
 				s.stream.ProtocolError()
 				return nil
@@ -203,14 +268,14 @@ func (s *StreamInput) WriteFrame(frame Frame) error {
 			}
 		}
 		case *SynReplyFrame: {
-			if s.nFrames > 0 || !s.stream.local {
+			if s.nFramesIn > 0 || !s.stream.local {
 				s.stream.ProtocolError()
 				return nil
 				// ("Received invalid SYN_REPLY frame")
 			}
 		}
 		case *HeadersFrame, *DataFrame: {
-			if s.nFrames == 0 {
+			if s.nFramesIn == 0 {
 				s.stream.ProtocolError()
 				return nil
 				// ("Received invalid first frame")
@@ -242,17 +307,17 @@ func (s *StreamOutput) WriteFrame(frame Frame) error {
 	/* Is this frame type allowed at this point? */
 	switch frame.(type) {
 		case *SynStreamFrame: {
-			if s.nFrames > 0 || !s.stream.local {
+			if s.nFramesIn > 0 || !s.stream.local {
 				return errors.New("Won't send invalid SYN_STREAM frame")
 			}
 		}
 		case *SynReplyFrame: {
-			if s.nFrames > 0 || s.stream.local {
+			if s.nFramesIn > 0 || s.stream.local {
 				return errors.New("Won't send invalid SYN_REPLY frame")
 			}
 		}
 		case *HeadersFrame, *DataFrame: {
-			if s.nFrames == 0 {
+			if s.nFramesIn == 0 {
 				return errors.New("First frame sent must be SYN_STREAM or SYN_REPLY")
 			}
 		}

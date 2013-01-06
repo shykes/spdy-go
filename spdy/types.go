@@ -15,10 +15,7 @@ import (
 	"net/http"
 )
 
-type Handler interface {
-	ServeSPDY(*Stream)
-}
-
+type Handler http.Handler
 
 //  Data Frame Format
 //  +----------------------------------+

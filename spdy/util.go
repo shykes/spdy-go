@@ -74,23 +74,9 @@ func debug(msg string, args ...interface{}) {
 }
 
 
-type HandlerFunc func(*Stream)
-
-func (f *HandlerFunc) ServeSPDY(s *Stream) {
-	(*f)(s)
-}
-
-
-
 type DummyHandler struct {}
 
-func (f *DummyHandler) ServeSPDY(s *Stream) {
-	for {
-		_, err := s.Input.ReadFrame()
-		if err != nil {
-			return
-		}
-	}
+func (f *DummyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 

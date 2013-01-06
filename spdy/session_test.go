@@ -2,21 +2,8 @@ package spdy
 
 import (
 	"testing"
-	"io"
-	"time"
 )
 
-func TestSynCallsHandler(t *testing.T) {
-	ch := make(chan uint32)
-	s := NewTestSession(func(stream *Stream) {
-		debug("Handler!")
-		ch <- stream.Id
-	}, true)
-	s.processFrame(&SynStreamFrame{StreamId: 1})
-	if <-ch != 1 {
-		t.Error("handler was not called")
-	}
-}
 
 func TestSynStreamTooHigh(t *testing.T) {
 	s := NewTestSession(nil, true)
@@ -71,41 +58,6 @@ func TestChanFramerSendOneFrame(t *testing.T) {
 }
 
 
-/*
-** 
-*/
-
-func _TestSessionSynStreamCallsHandlerTemp(t *testing.T) {
-	framer := NewChanFramer()
-	ch := make(chan bool)
-	handler := HandlerFunc(func(stream *Stream) {
-		if stream.Id != 1 {
-			t.Errorf("Wrong stream ID: %d\n", stream.Id)
-		}
-		ch <- true
-	})
-	NewSession(framer, &handler, true)
-	framer.WriteFrame(&SynStreamFrame{StreamId: 1})
-	debug("Wrote frame")
-	timeout := Timeout(1 * time.Second)
-	debug("Waiting for timeout to start")
-	<-timeout
-	debug("timeout has started")
-	select {
-		case _, ok := <-ch: {
-			if !ok {
-				t.Error("Stream was not created\n")
-			}
-		}
-		case <-timeout: {
-			debug("Timeout ended")
-			t.Error("Stream was not created\n")
-		}
-	}
-	debug("???")
-}
-
-
 func TestSessionOpenStreamServer(t *testing.T) {
 	session := NewTestSession(nil, true)
 	stream, err := session.OpenStream()
@@ -141,16 +93,7 @@ func TestNStreams(t *testing.T) {
 }
 
 func TestCloseStream(t *testing.T) {
-	handler := HandlerFunc(func(s *Stream) {
-			_, err := s.Input.ReadFrame()
-			if err != io.EOF {
-				t.Errorf("CloseStream() did not pass io.EOF")
-			}
-		})
-	session := NewSession(
-		NewChanFramer(),
-		&handler,
-		false)
+	session := NewTestSession(nil, false)
 	session.OpenStream()
 	session.CloseStream(1)
 	if session.NStreams() != 0 {
