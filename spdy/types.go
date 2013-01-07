@@ -13,6 +13,7 @@ import (
 	"compress/zlib"
 	"io"
 	"net/http"
+	"fmt"
 )
 
 type Handler http.Handler
@@ -217,6 +218,7 @@ const (
 	Cancel                        = 5
 	InternalError                 = 6
 	FlowControlError              = 7
+	StreamAlreadyClosed           = 9 // introduced in version 3
 )
 
 // RstStreamFrame is the unpacked, in-memory representation of a RST_STREAM
@@ -321,6 +323,12 @@ const (
 	InvalidDataFrame           ErrorCode = "invalid data frame"
 	InvalidHeaderPresent       ErrorCode = "frame contained invalid header"
 	ZeroStreamId               ErrorCode = "stream id zero is disallowed"
+	IllegalSynStream           ErrorCode = "SYN_STREAM at the wrong time"
+	IllegalSynReply            ErrorCode = "SYN_REPLY at the wrong time"
+	IllegalFirstFrame          ErrorCode = "first frame must be SYN_STREAM or SYN_REPLY"
+	StreamClosed               ErrorCode = "stream is closed"
+	NoSuchStream               ErrorCode = "no such stream"
+	InvalidStreamId            ErrorCode = "illegal stream id"
 )
 
 // Error contains both the type of error and additional values. StreamId is 0
@@ -333,6 +341,17 @@ type Error struct {
 func (e *Error) Error() string {
 	return string(e.Err)
 }
+
+// RstError is an error which can be sent as an RST_STREAM frame
+type RstError struct {
+	Status StatusCode
+	Err	Error
+}
+
+func (e *RstError) Error() string {
+	return fmt.Sprintf("%#v: %s", e.Status, e.Err.Error())
+}
+
 
 var invalidReqHeaders = map[string]bool{
 	"Connection":        true,
@@ -359,6 +378,17 @@ type FrameReadWriter interface {
 	FrameReader
 	FrameWriter
 }
+
+type FrameReadCloser interface {
+	FrameReader
+	io.Closer
+}
+
+type FrameWriteCloser interface {
+	FrameWriter
+	io.Closer
+}
+
 
 // Framer handles serializing/deserializing SPDY frames, including compressing/
 // decompressing payloads.

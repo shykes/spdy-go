@@ -143,8 +143,7 @@ func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
 
 func Split(src FrameReader, data FrameWriter, headers FrameWriter, control FrameWriter) error {
 	for {
-		frame, err := src.ReadFrame()
-		if err == io.EOF {
+		if frame, err := src.ReadFrame(); err == io.EOF {
 			break
 		} else if err != nil {
 			return err

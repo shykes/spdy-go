@@ -7,9 +7,10 @@ import (
 
 func TestSynStreamTooHigh(t *testing.T) {
 	s := NewTestSession(nil, true)
-	s.processFrame(&SynStreamFrame{StreamId: 3})
-	s.pipe.Output.Close()
-	frame, err := s.pipe.Output.ReadFrame()
+	if err := s.pipe.WriteFrame(&SynStreamFrame{StreamId: 3}); err != nil {
+		t.Error(err)
+	}
+	frame, err := s.pipe.ReadFrame()
 	if err != nil {
 		t.Error("Session didn't send protocol error on invalid stream id")
 		return
@@ -26,9 +27,10 @@ func TestSynStreamTooHigh(t *testing.T) {
 
 func TestSynStreamInvalidId(t *testing.T) {
 	s := NewTestSession(nil, true)
-	s.processFrame(&SynStreamFrame{StreamId: 2})
-	s.pipe.Output.Close()
-	frame, err := s.pipe.Output.ReadFrame()
+	if err := s.pipe.WriteFrame(&SynStreamFrame{StreamId: 2}); err != nil {
+		t.Error(err)
+	}
+	frame, err := s.pipe.ReadFrame()
 	if err != nil {
 		t.Error("Session didn't send protocol error on invalid stream id")
 		return
@@ -41,20 +43,6 @@ func TestSynStreamInvalidId(t *testing.T) {
 		t.Error("Session didn't send protocol error on invalid stream id")
 	}
 
-}
-
-/*
-** ChanFramer
-*/
-
-func TestChanFramerSendOneFrame(t *testing.T) {
-	framer := NewChanFramer()
-	f_in := NoopFrame{}
-	framer.WriteFrame(&f_in)
-	f_out, _ := framer.ReadFrame()
-	if f_in != *f_out.(*NoopFrame) {
-		t.Errorf("Sent %v, received %v\n", f_in, f_out)
-	}
 }
 
 

@@ -37,10 +37,10 @@ func (w *ResponseWriter) Write(data []byte) (int, error) {
 func (w *ResponseWriter) WriteHeader(status int) {
 	fin := status == 0 // Status=0 will half-close the stream 
 	debug("WriteHeader() header = %v\n", w.Header())
-	if w.Output.Headers.Get("status") == "" {
+	if w.output.Headers.Get("status") == "" {
 		w.Header().Set("status", fmt.Sprintf("%d", status))
 	}
-	if w.Output.nFramesIn == 0 {
+	if w.output.NFrames == 0 {
 		if w.local {
 			w.Syn(w.headers, fin)
 		} else {

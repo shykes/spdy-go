@@ -7,26 +7,7 @@ import (
 
 type TestSession struct {
 	*Session
-	pipe *Pipe
-}
-
-
-type Pipe struct {
-	Input	*ChanFramer
-	Output	*ChanFramer
-}
-
-func (pipe *Pipe) ReadFrame() (Frame, error) {
-	return pipe.Input.ReadFrame()
-}
-
-func (pipe *Pipe) WriteFrame(frame Frame) error {
-	return pipe.Output.WriteFrame(frame)
-}
-
-
-func NewPipe() *Pipe {
-	return &Pipe{NewChanFramer(), NewChanFramer()}
+	pipe *Socket
 }
 
 
@@ -38,10 +19,13 @@ func NewTestSession(h http.HandlerFunc, server bool) *TestSession {
 		h := http.HandlerFunc(h)
 		handler = &h
 	}
-	pipe := NewPipe()
+	session := NewSession(handler, server)
+	inputR, inputW := Pipe(0)
+	outputR, outputW := Pipe(0)
+	go Splice(session, &Socket{inputR, outputW}, true)
 	return &TestSession{
-		Session:	NewSession(pipe, handler, server),
-		pipe:		pipe,
+		Session:	NewSession(handler, server),
+		pipe:		&Socket{outputR, inputW},
 	}
 }
 

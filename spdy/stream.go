@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"fmt"
 )
 
 
@@ -21,30 +22,65 @@ import (
 */
 
 type Stream struct {
-	Id      uint32
-	Input	StreamInput
-	Output	StreamOutput
-	local	bool	// Was this stream created locally?
+	Id      	uint32
+	input		*StreamPipeReader
+	output		*StreamPipeWriter
+	local		bool	// Was this stream created locally?
+	sendErrors	bool
+	Closed		bool
 	// FIXME: unidirectional
 	// FIXME: priority
 }
 
-func NewStream(id uint32, local bool) *Stream {
-	s := &Stream{
-		Id:	id,
-		local:	local,
-	}
-	s.Input = StreamInput{NewHalfStream(s)}
-	s.Output = StreamOutput{NewHalfStream(s)}
-	return s
+func NewStream(id uint32, local bool) (*Stream, *Stream) {
+	debug("NewStream(%d)", id)
+	inputR, inputW := StreamPipe(id, local)
+	outputR, outputW := StreamPipe(id, !local)
+	stream := &Stream{input: inputR,  output: outputW, sendErrors: false, Id: id, local: local}
+	peer   := &Stream{input: outputR, output:  inputW, sendErrors: true,  Id: id, local: local}
+	return stream, peer
 }
 
 func (s *Stream) ReadFrame() (Frame, error) {
-	return s.Input.ReadFrame()
+	frame, err := s.input.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	if _, isRst := frame.(*RstStreamFrame); isRst {
+		s.Close()
+	}
+	s.debug("Received %#v err=%#v", frame, err)
+	return frame, nil
+}
+
+func (s *Stream) debug(msg string, args ...interface{}) {
+	debug(fmt.Sprintf("[STREAM %d %p] %s", s.Id, s, msg), args...)
 }
 
 func (s *Stream) WriteFrame(frame Frame) error {
-	return s.Output.WriteFrame(frame)
+	s.debug("Passing %#v", frame)
+	err := s.output.WriteFrame(frame)
+	if err != nil {
+		if rstErr, isRstErr := err.(*RstError); isRstErr && s.sendErrors {
+			s.debug("Sending error: %#v", rstErr)
+			s.Rst(rstErr.Status)
+			return nil
+		}
+		return err
+	}
+	if _, isRst := frame.(*RstStreamFrame); isRst {
+		s.Close()
+	}
+	return nil
+}
+
+func (s *Stream) Close() {
+	if s.Closed {
+		return
+	}
+	s.Closed = true
+	s.output.Close()
+	s.input.Close()
 }
 
 
@@ -56,7 +92,7 @@ func (s *Stream) Reply(headers *http.Header, fin bool) error {
 	if fin {
 		flags = ControlFlagFin
 	}
-	return s.Output.WriteFrame(&SynReplyFrame{
+	return s.WriteFrame(&SynReplyFrame{
 		StreamId:	s.Id,
 		Headers:	*headers,
 		CFHeader:	ControlFrameHeader{Flags:flags},
@@ -71,7 +107,7 @@ func (s *Stream) Syn(headers *http.Header, fin bool) error {
 	if fin {
 		flags = ControlFlagFin
 	}
-	return s.Output.WriteFrame(&SynStreamFrame{
+	return s.WriteFrame(&SynStreamFrame{
 		StreamId:	s.Id,
 		Headers:	*headers,
 		CFHeader:	ControlFrameHeader{Flags:flags},
@@ -86,7 +122,7 @@ func (s *Stream) WriteHeadersFrame(headers *http.Header, fin bool) error {
 	if fin {
 		flags = ControlFlagFin
 	}
-	return s.Output.WriteFrame(&HeadersFrame{
+	return s.WriteFrame(&HeadersFrame{
 		StreamId:	s.Id,
 		Headers:	*headers,
 		CFHeader:	ControlFrameHeader{Flags:flags},
@@ -98,7 +134,7 @@ func (s *Stream) WriteDataFrame(data []byte, fin bool) error {
 	if fin {
 		flags = DataFlagFin
 	}
-	return s.Output.WriteFrame(&DataFrame{
+	return s.WriteFrame(&DataFrame{
 		StreamId:	s.Id,
 		Data:		data,
 		Flags:		flags,
@@ -122,15 +158,11 @@ func (s *Stream) CopyFrom(src io.Reader) error {
 }
 
 func (s *Stream) Rst(status StatusCode) error {
-	return s.Output.WriteFrame(&RstStreamFrame{StreamId: s.Id, Status: status})
-}
-
-func (s *Stream) ProtocolError() error {
-	return s.Rst(ProtocolError)
+	return s.WriteFrame(&RstStreamFrame{StreamId: s.Id, Status: status})
 }
 
 func (stream *Stream) Serve(handler http.Handler) {
-	debug("Running handler")
+	stream.debug("Running handler")
 	if handler == nil {
 		stream.Rst(RefusedStream)
 		return
@@ -139,22 +171,21 @@ func (stream *Stream) Serve(handler http.Handler) {
 	r, err := stream.ParseHTTPRequest(nil);
 	if err != nil {
 		// FIXME: send error
-		debug("Error parsing http request: %s\n", err)
+		stream.debug("Error parsing http request: %s\n", err)
 		return
 	}
-	debug("[%d] Running handler\n", stream.Id)
 	handler.ServeHTTP(w, r)
-	debug("Handler returned for stream id %d. Cleaning up.", stream.Id)
+	stream.debug("Handler returned. Cleaning up.")
 	stream.WriteDataFrame(nil, true) // Close the stream in case the handler hasn't
 	_, err = io.Copy(ioutil.Discard, r.Body) // Drain all remaining input
 	if err != nil {
-		debug("Error while draining stream id %d: %s", stream.Id, err)
+		stream.debug("Error while draining: %s", err)
 	}
-	debug("Done cleaning up for stream id %d", stream.Id)
+	stream.debug("Done cleaning up")
 }
 
 func (s *Stream) ParseHTTPRequest(drain FrameWriter) (*http.Request, error) {
-	if s.Input.nFramesOut > 0 {
+	if s.input.NFrames > 0 {
 		return nil, errors.New("Can't parse HTTP request: first SPDY frame already read")
 	}
 	frame, err := s.ReadFrame()
@@ -166,13 +197,16 @@ func (s *Stream) ParseHTTPRequest(drain FrameWriter) (*http.Request, error) {
 	if method == "" {
 		method = "GET"
 	}
+	s.debug("headers = %#v", *headers)
 	path := headers.Get("url")
 	if path == "" {
 		path = "/"
 	}
+	s.debug("path = %s", (*headers)["url"])
 	bodyReader, bodyWriter := io.Pipe()
 	go func() {
-		Split(s.Input, &DataWriter{bodyWriter}, drain, drain)
+		Split(s, &DataWriter{bodyWriter}, drain, drain)
+		s.debug("Closing request body")
 		bodyWriter.Close()
 	}()
 	r, err := http.NewRequest(method, path, bodyReader)
@@ -183,69 +217,28 @@ func (s *Stream) ParseHTTPRequest(drain FrameWriter) (*http.Request, error) {
 	return r, nil
 }
 
-func (s *Stream) Close() {
-	s.Input.HalfStream.Close()
-	s.Output.HalfStream.Close()
+
+func StreamPipe(id uint32, reply bool) (*StreamPipeReader, *StreamPipeWriter) {
+	pipeReader, pipeWriter := Pipe(4096) // Buffering is Ok after writing, but not before (for sendErrors)
+	reader := &StreamPipeReader{PipeReader: pipeReader}
+	writer := &StreamPipeWriter{PipeWriter: pipeWriter, id: id, reply: reply, Headers: make(http.Header)}
+	return reader, writer
 }
 
+type StreamPipeReader struct {
+	*PipeReader
+}
 
-type HalfStream struct {
-	stream *Stream
-	*ChanFramer
+type StreamPipeWriter struct {
+	*PipeWriter
+	reply	bool	// If true, must start with SYN_REPLY. Otherwise must start with SYN_STREAM
+	closed	bool
+	id	uint32
 	Headers	http.Header
-	nFramesIn	uint32
-	nFramesOut	uint32
 }
 
-func NewHalfStream(s *Stream) *HalfStream {
-	return &HalfStream{
-		stream:		s,
-		ChanFramer:	NewChanFramer(),
-		Headers:	http.Header{},
-	}
-}
-
-
-func (s *HalfStream) ReadFrame() (Frame, error) {
-	frame, err := s.ChanFramer.ReadFrame()
-	if err != nil {
-		return nil, err
-	}
-	s.nFramesOut += 1
-	return frame, nil
-}
-
-func (s *HalfStream) WriteFrame(frame Frame) error {
-	if err := s.ChanFramer.WriteFrame(frame); err != nil {
-		return err
-	}
-	s.nFramesIn += 1
-	/* If we sent a frame with FLAG_FIN, mark the output as closed */
-	if frame.GetFinFlag() {
-		s.Close()
-	}
-	/* If we sent headers, store them */
-	if headers := frame.GetHeaders(); headers != nil {
-		UpdateHeaders(&s.Headers, headers)
-	}
-	/* If we sent a RST_STREAM frame, mark input and output as closed */
-	if _, isRst := frame.(*RstStreamFrame); isRst {
-		debug("Received RST_STREAM. Closing")
-		s.stream.Close()
-	}
-	return nil
-}
-
-
-type StreamInput struct {
-	*HalfStream
-}
-
-
-func (s *StreamInput) WriteFrame(frame Frame) error {
-	debug("[StreamInput.WriteFrame]")
-	if s.Closed() {
-		debug("[StreamInput.WriteFrame] input is closed")
+func (p *StreamPipeWriter) WriteFrame(frame Frame) error {
+	if p.closed {
 		/*
 		 *                      "An endpoint MUST NOT send a RST_STREAM in
 		 * response to an RST_STREAM, as doing so would lead to RST_STREAM
@@ -253,129 +246,51 @@ func (s *StreamInput) WriteFrame(frame Frame) error {
 		 *
 		 * (http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.4.2)
 		 */
-		if _, isRst := frame.(*RstStreamFrame); !isRst {
-			s.stream.Rst(9) // STREAM_ALREADY_CLOSED, introduced in version 3
+		if _, isRst := frame.(*RstStreamFrame); isRst {
+			return &Error{StreamClosed, p.id}
 		}
-		return nil
+		return &RstError{StreamAlreadyClosed, Error{StreamClosed, p.id}}
+	}
+	if frame.GetStreamId() != p.id {
+		return errors.New("Wrong stream ID")
 	}
 	switch frame.(type) {
 		case *SynStreamFrame: {
-			if s.nFramesIn > 0 || s.stream.local {
-				debug("[StreamInput.WriteFrame] synstream at the wrong time")
-				s.stream.ProtocolError()
-				return nil
-				// ("Received invalid SYN_STREAM frame")
+			if p.NFrames > 0 || p.reply {
+				return &RstError{ProtocolError, Error{IllegalSynStream, p.id}}
 			}
 		}
 		case *SynReplyFrame: {
-			if s.nFramesIn > 0 || !s.stream.local {
-				s.stream.ProtocolError()
-				return nil
-				// ("Received invalid SYN_REPLY frame")
+			if p.NFrames > 0 || !p.reply {
+				return &RstError{ProtocolError, Error{IllegalSynReply, p.id}}
 			}
 		}
 		case *HeadersFrame, *DataFrame: {
-			if s.nFramesIn == 0 {
-				s.stream.ProtocolError()
-				return nil
-				// ("Received invalid first frame")
-			}
-		}
-		case *RstStreamFrame: {
-			// RST_STREAM frames are always allowed
-		}
-		default: {
-			debug("Received invalid frame")
-			s.stream.ProtocolError()
-			return nil
-		}
-	}
-	return s.HalfStream.WriteFrame(frame)
-
-}
-
-
-type StreamOutput struct {
-	*HalfStream
-}
-
-
-func (s *StreamOutput) WriteFrame(frame Frame) error {
-	if s.Closed() {
-		return errors.New("Output closed")
-	}
-	/* Is this frame type allowed at this point? */
-	switch frame.(type) {
-		case *SynStreamFrame: {
-			if s.nFramesIn > 0 || !s.stream.local {
-				return errors.New("Won't send invalid SYN_STREAM frame")
-			}
-		}
-		case *SynReplyFrame: {
-			if s.nFramesIn > 0 || s.stream.local {
-				return errors.New("Won't send invalid SYN_REPLY frame")
-			}
-		}
-		case *HeadersFrame, *DataFrame: {
-			if s.nFramesIn == 0 {
-				return errors.New("First frame sent must be SYN_STREAM or SYN_REPLY")
+			if p.NFrames == 0 {
+				return &RstError{ProtocolError, Error{IllegalFirstFrame, p.id}}
 			}
 		}
 		default: {
-			return errors.New("Won't send invalid frame type")
+			return &Error{UnknownFrameType, p.id}
 		}
 	}
-	return s.HalfStream.WriteFrame(frame)
-}
-
-
-/*
-** A ChanFramer allows 2 goroutines to send SPDY frames to each other
-** using the Framer interface.
-**
-** Frames are sent through a buffered channel of hardcoded size (currently 4096).
-*/
-
-type ChanFramer struct {
-	ch	chan Frame
-	err	error
-}
-
-func NewChanFramer() *ChanFramer {
-	return &ChanFramer{
-		ch:	make(chan Frame, 4096),
+	if err := p.PipeWriter.WriteFrame(frame); err != nil {
+		return err
 	}
-}
-
-func (framer *ChanFramer) WriteFrame(frame Frame) error {
-	if framer.err != nil {
-		return framer.err
+	/* If FLAG_FIN=true, close the pipe */
+	if frame.GetFinFlag() {
+		debug("FIN=1, closing StreamPipe")
+		p.closed = true
+		p.PipeWriter.Close()
 	}
-	framer.ch <- frame
+	/* On a RST_STREAM, close the pipe */
+	if _, isRst := frame.(*RstStreamFrame); isRst {
+		debug("Received RST_STREAM. Closing")
+		p.closed = true
+	}
+	/* Store headers */
+	if headers := frame.GetHeaders(); headers != nil {
+		UpdateHeaders(&p.Headers, headers)
+	}
 	return nil
-}
-
-func (framer *ChanFramer) ReadFrame() (Frame, error) {
-	/* This will not block if the channel is closed and empty */
-	frame, ok := <-framer.ch
-	if !ok {
-		return nil, framer.err
-	}
-	return frame, nil
-}
-
-func (framer *ChanFramer) Error(err error) {
-	if framer.err != nil {
-		return
-	}
-	framer.err = err
-	close(framer.ch)
-}
-
-func (framer *ChanFramer) Close() {
-	framer.Error(io.EOF)
-}
-
-func (framer *ChanFramer) Closed() bool {
-	return framer.err != nil
 }

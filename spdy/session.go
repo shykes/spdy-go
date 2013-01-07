@@ -11,8 +11,6 @@ package spdy
 import (
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 )
 
@@ -29,25 +27,29 @@ import (
  */
 
 type Session struct {
-	FrameReadWriter
 	Server       bool   // Are we the server? (necessary for stream ID numbering)
 	lastStreamIdOut uint32 // Last (and highest-numbered) stream ID we allocated
 	lastStreamIdIn	uint32 // Last (and highest-numbered) stream ID we received
 	streams      map[uint32]*Stream
 	handler      http.Handler
-	conn         net.Conn
 	closed       bool
+	outputR	     *PipeReader
+	outputW      *PipeWriter
 }
 
 
-func NewSession(framer FrameReadWriter, handler http.Handler, server bool) *Session {
+func NewSession(handler http.Handler, server bool) *Session {
+	outputR, outputW := Pipe(4096)
 	session := &Session{
-		FrameReadWriter:	framer,
 		Server:		server,
 		streams:	make(map[uint32]*Stream),
 		handler:	handler,
+		outputR:	outputR,
+		outputW:	outputW,
 	}
-	go session.run()
+	if session.handler == nil {
+		session.outputW.WriteFrame(&GoAwayFrame{})
+	}
 	return session
 }
 
@@ -124,23 +126,12 @@ func (session *Session) OpenStream() (*Stream, error) {
  */
 
 func (session *Session) newStream(id uint32, local bool) (*Stream, error) {
-	/* Is this ID valid? */
-	if local {
-		if !session.isLocalId(id) || id != session.nextIdOut() {
-			return nil, errors.New("Invalid local stream id")
-		}
-	} else {
-		if session.isLocalId(id) || id != session.nextIdIn() {
-			return nil, errors.New("Invalid remote stream id")
-		}
+	/* If the ID is valid, register the stream. Otherwise, send a protocol error */
+	if !session.streamIdIsValid(id, local) {
+		return nil, &RstError{ProtocolError, Error{InvalidStreamId, id}}
 	}
-	debug("ID=%d (isLocalID: %v) local=%v: ok", id, session.isLocalId(id), local)
-	/* Is this ID already in use? */
-	if _, alreadyExists := session.streams[id]; alreadyExists {
-		return nil, errors.New(fmt.Sprintf("Stream %d already exists", id))
-	}
-	stream := NewStream(id, local)
-	session.streams[id] = stream
+	stream, streamPeer := NewStream(id, local)
+	session.streams[id] = streamPeer
 	if local {
 		session.lastStreamIdOut = id
 	} else {
@@ -148,49 +139,41 @@ func (session *Session) newStream(id uint32, local bool) (*Stream, error) {
 	}
 	/* Copy stream output to session output */
 	go func() {
-		err := Copy(session, stream.Output)
-		/* Close the stream if there's an error */
+		err := Copy(session.outputW, streamPeer)
+		/* Close the stream if there's an error (inluding EOF) */
 		if err != nil {
 			session.CloseStream(id)
-		}
-		/* If stream is already half-closed, close it */
-		if stream.Input.Closed() {
-			session.CloseStream(id)
+		} else {
+			if streamPeer.Closed {
+				session.CloseStream(id)
+			}
 		}
 	}()
 	return stream, nil
 }
+
+func (session *Session) streamIdIsValid(id uint32, local bool) bool {
+	/* Is this ID valid? */
+	if local {
+		if !session.isLocalId(id) || id != session.nextIdOut() {
+			return false
+		}
+	} else {
+		if session.isLocalId(id) || id != session.nextIdIn() {
+			return false
+		}
+	}
+	return true
+}
+
 
 func (session *Session) CloseStream(id uint32) error {
 	stream, exists := session.streams[id]
 	if !exists {
 		return errors.New(fmt.Sprintf("No such stream: %v", id))
 	}
-	stream.Input.Close()
+	stream.Close()
 	delete(session.streams, id)
-	return nil
-}
-
-/*
-** Listen for new frames and process them
- */
-
-func (session *Session) run() error {
-	debug("Starting receive loop\n")
-	if session.handler == nil {
-		if err := session.WriteFrame(&GoAwayFrame{}); err != nil {
-			return err
-		}
-	}
-	for {
-		rawframe, err := session.ReadFrame()
-		if err != nil {
-			session.Close()
-			return err
-		}
-		debug("Received frame %s\n", rawframe)
-		session.processFrame(rawframe)
-	}
 	return nil
 }
 
@@ -203,62 +186,66 @@ func (session *Session) NStreams() int {
 	return len(session.streams)
 }
 
+func (session *Session) ReadFrame() (Frame, error) {
+	frame, err := session.outputR.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	debug("Sending frame: %#v", frame)
+	return frame, nil
+}
 
-
-func (session *Session) processFrame(frame Frame) {
+func (session *Session) WriteFrame(frame Frame) error {
+	debug("Received frame: %#v", frame)
 	/* Is this frame stream-specific? */
 	if streamId := frame.GetStreamId(); streamId != 0 {
-		debug("streamId = %s", streamId)
 		/* SYN_STREAM frame: create the stream */
 		if _, ok := frame.(*SynStreamFrame); ok {
 			debug("SYN_STREAM: creating new stream")
 			if stream, err := session.newStream(streamId, false); err != nil {
-				/* protocol error */
-				debug("Protocol error on SYN_STREAM: %s", err)
-				session.WriteFrame(&RstStreamFrame{
-					StreamId: streamId,
-					Status: ProtocolError,
-				})
-				return
+				if rstErr, isRstErr := err.(*RstError); isRstErr {
+					session.outputW.WriteFrame(&RstStreamFrame{StreamId: streamId, Status: rstErr.Status})
+					return nil
+				} else {
+					return err
+				}
 			} else {
 				go stream.Serve(session.handler)
 			}
 		}
-		stream, exists := session.streams[streamId]
+		streamPeer, exists := session.streams[streamId]
 		if !exists {
-			/* protocol error */
-			debug("Protocol error: stream id %d does not exist", streamId)
-			session.WriteFrame(&RstStreamFrame{
-				StreamId: streamId,
-				Status: ProtocolError,
-			})
-			return
+			session.outputW.WriteFrame(&RstStreamFrame{StreamId: streamId, Status: ProtocolError})
+			return nil
 		}
-		debug("Sending frame %v to stream %d", frame, streamId)
-		err := stream.Input.WriteFrame(frame)
-		debug("done")
-		if err == io.EOF {
-			debug("Stream %d input closed", streamId)
-			/* If stream is already half-closed, close it */
-			if stream.Output.Closed() {
-				debug("Stream %d output was already closed, de-registering", streamId)
-				session.CloseStream(streamId)
-			}
-		} else if err != nil {
-		/* Close the stream if there's an error */
+		err := streamPeer.WriteFrame(frame)
+		if err != nil {
+			debug("Error while passing frame to stream: %s. Closing stream.", err)
 			session.CloseStream(streamId)
-			return
+			return err
+		} else if streamPeer.Closed {
+			debug("Stream %d is fully closed. De-registering", streamId)
 		}
 	/* Is this frame session-wide? */
 	} else {
 		switch frame.(type) {
-			case *SettingsFrame:	debug("SETTINGS\n")
+			case *SettingsFrame:		debug("SETTINGS\n")
 			case *NoopFrame:		debug("NOOP\n")
 			case *PingFrame:		debug("PING\n")
 			case *GoAwayFrame:		debug("GOAWAY\n")
 			default:			debug("Unknown frame type!")
 		}
 	}
+	return nil
+}
+
+
+func (session *Session) Serve(peer FrameReadWriter) error {
+	defer session.Close()
+	if err := Splice(session, peer, true); err != nil {
+		return err
+	}
+	return nil
 }
 
 /*

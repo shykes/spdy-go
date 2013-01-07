@@ -25,5 +25,7 @@ func Serve(conn net.Conn, handler Handler, server bool) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewSession(framer, handler, server), nil
+	session := NewSession(handler, server)
+	go session.Serve(framer)
+	return session, nil
 }
