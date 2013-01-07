@@ -148,14 +148,16 @@ func Split(src FrameReader, data FrameWriter, headers FrameWriter, control Frame
 			break
 		} else if err != nil {
 			return err
-		}
-		switch frame.(type) {
-			case *DataFrame:	err = data.WriteFrame(frame)
-			case *HeadersFrame:	err = headers.WriteFrame(frame)
-			default:		err = control.WriteFrame(frame)
-		}
-		if err != nil {
-			return err
+		} else {
+			var err error
+			switch frame.(type) {
+				case *DataFrame:	err = data.WriteFrame(frame)
+				case *HeadersFrame:	if (headers != nil) { err = headers.WriteFrame(frame) }
+				default:		if (control != nil) { err = control.WriteFrame(frame) }
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
