@@ -366,26 +366,26 @@ var invalidRespHeaders = map[string]bool{
 	"Transfer-Encoding": true,
 }
 
-type FrameReader interface {
+type Reader interface {
 	ReadFrame() (Frame, error)
 }
 
-type FrameWriter interface {
+type Writer interface {
 	WriteFrame(Frame) error
 }
 
-type FrameReadWriter interface {
-	FrameReader
-	FrameWriter
+type ReadWriter interface {
+	Reader
+	Writer
 }
 
-type FrameReadCloser interface {
-	FrameReader
+type ReadCloser interface {
+	Reader
 	io.Closer
 }
 
-type FrameWriteCloser interface {
-	FrameWriter
+type WriteCloser interface {
+	Writer
 	io.Closer
 }
 

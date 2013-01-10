@@ -80,7 +80,7 @@ func (f *DummyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func Copy(w FrameWriter, r FrameReader) error {
+func Copy(w Writer, r Reader) error {
 	for {
 		frame, err := r.ReadFrame()
 		if err == io.EOF {
@@ -100,7 +100,7 @@ func Copy(w FrameWriter, r FrameReader) error {
 	return nil
 }
 
-func CopyBytes(dst io.Writer, src FrameReader) error {
+func CopyBytes(dst io.Writer, src Reader) error {
 	for {
 		frame, err := src.ReadFrame()
 		if err == io.EOF {
@@ -119,7 +119,7 @@ func CopyBytes(dst io.Writer, src FrameReader) error {
 	return nil
 }
 
-func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
+func Splice(a ReadWriter, b ReadWriter, wait bool) error {
 	Ab, Ba := func() error {return Copy(a, b)}, func() error {return Copy(b, a)}
 	promiseAb, promiseBa := Promise(Ab), Promise(Ba)
 	if wait {
@@ -141,7 +141,7 @@ func Splice(a FrameReadWriter, b FrameReadWriter, wait bool) error {
 }
 
 
-func Split(src FrameReader, data FrameWriter, headers FrameWriter, control FrameWriter) error {
+func Split(src Reader, data Writer, headers Writer, control Writer) error {
 	for {
 		if frame, err := src.ReadFrame(); err == io.EOF {
 			break

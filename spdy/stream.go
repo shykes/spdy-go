@@ -184,7 +184,7 @@ func (stream *Stream) Serve(handler http.Handler) {
 	stream.debug("Done cleaning up")
 }
 
-func (s *Stream) ParseHTTPRequest(drain FrameWriter) (*http.Request, error) {
+func (s *Stream) ParseHTTPRequest(drain Writer) (*http.Request, error) {
 	if s.input.NFrames > 0 {
 		return nil, errors.New("Can't parse HTTP request: first SPDY frame already read")
 	}

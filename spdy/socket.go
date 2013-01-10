@@ -1,12 +1,12 @@
 package spdy
 
 type Socket struct {
-	FrameReadCloser
-	FrameWriteCloser
+	ReadCloser
+	WriteCloser
 }
 
 func (s *Socket) Close() error {
-	s.FrameReadCloser.Close()
-	s.FrameWriteCloser.Close()
+	s.ReadCloser.Close()
+	s.WriteCloser.Close()
 	return nil
 }

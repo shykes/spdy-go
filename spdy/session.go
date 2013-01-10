@@ -240,7 +240,7 @@ func (session *Session) WriteFrame(frame Frame) error {
 }
 
 
-func (session *Session) Serve(peer FrameReadWriter) error {
+func (session *Session) Serve(peer ReadWriter) error {
 	defer session.Close()
 	if err := Splice(session, peer, true); err != nil {
 		return err
