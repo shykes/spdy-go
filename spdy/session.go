@@ -15,15 +15,15 @@ import (
 )
 
 /*
-** type Session
-**
-** A high-level representation of a SPDY connection
-**  <<
-**      connection: A transport-level connection between two endpoints.
-**      session: A synonym for a connection.
-**  >>
-**  (http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-1.2)
-** 
+ * type Session
+ *
+ * A high-level representation of a SPDY connection
+ *  <<
+ *      connection: A transport-level connection between two endpoints.
+ *      session: A synonym for a connection.
+ *  >>
+ *  (http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-1.2)
+ *
  */
 
 type Session struct {
@@ -65,7 +65,7 @@ func (session *Session) Closed() bool {
 }
 
 /*
-** Compute the ID which should be used to open the next stream 
+** Compute the ID which should be used to open the next stream
 ** 
 ** Per http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.3.2
 ** <<
@@ -204,12 +204,7 @@ func (session *Session) NStreams() int {
 }
 
 func (session *Session) ReadFrame() (Frame, error) {
-	frame, err := session.outputR.ReadFrame()
-	if err != nil {
-		return nil, err
-	}
-	debug("Sending frame: %#v", frame)
-	return frame, nil
+	return session.outputR.ReadFrame()
 }
 
 func (session *Session) WriteFrame(frame Frame) error {
@@ -218,7 +213,6 @@ func (session *Session) WriteFrame(frame Frame) error {
 	if streamId := frame.GetStreamId(); streamId != 0 {
 		/* SYN_STREAM frame: create the stream */
 		if _, ok := frame.(*SynStreamFrame); ok {
-			debug("SYN_STREAM: creating new stream")
 			if stream, err := session.newStream(streamId, false); err != nil {
 				if rstErr, isRstErr := err.(*RstError); isRstErr {
 					session.outputW.WriteFrame(&RstStreamFrame{StreamId: streamId, Status: rstErr.Status})
