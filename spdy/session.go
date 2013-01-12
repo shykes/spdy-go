@@ -242,7 +242,7 @@ func (session *Session) WriteFrame(frame Frame) error {
 		switch frame.(type) {
 			case *SettingsFrame:		debug("SETTINGS\n")
 			case *NoopFrame:		debug("NOOP\n")
-			case *PingFrame:		debug("PING\n")
+			case *PingFrame:		session.outputW.WriteFrame(frame)
 			case *GoAwayFrame:		debug("GOAWAY\n")
 			default:			debug("Unknown frame type!")
 		}
