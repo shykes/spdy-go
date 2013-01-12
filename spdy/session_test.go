@@ -23,6 +23,27 @@ func TestSynStreamTooHigh(t *testing.T) {
 		t.Error("Session didn't send protocol error on invalid stream id")
 	}
 
+//    Stream IDs do not
+//    wrap: when a client or server cannot create a new stream id without
+//    exceeding a 31 bit value, it MUST NOT create a new stream.
+
+func TestIdWrap(t *testing.T) {
+	for _, isServer := range []bool{true, false} {
+		s := NewSession(new(DummyHandler), isServer)
+		if isServer {
+			s.lastStreamIdOut = 0xffffffff
+		} else {
+			s.lastStreamIdOut = 0xffffffff - 1
+		}
+		_, err := s.OpenStream()
+		if err == nil {
+			t.Error("[...] when a client or server cannot create a new stream id without exceeding a 31 bit value, it MUST NOT create a new stream")
+		}
+		if s.NStreams() != 0 {
+			t.Error("[...] when a client or server cannot create a new stream id without exceeding a 31 bit value, it MUST NOT create a new stream")
+
+		}
+	}
 }
 
 func TestSynStreamInvalidId(t *testing.T) {

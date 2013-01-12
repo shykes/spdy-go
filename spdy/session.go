@@ -79,28 +79,32 @@ func (session *Session) Closed() bool {
 **    exceeding a 31 bit value, it MUST NOT create a new stream.
 ** >>
  */
-func (session *Session) nextIdOut() uint32 {
+func (session *Session) nextIdOut() (uint32, error) {
 	if session.lastStreamIdOut == 0 {
 		if session.Server {
-			return 2
+			return 2, nil
 		} else {
-			return 1
+			return 1, nil
 		}
 	}
-	// FIXME: optionally return an error on wrap
-	// (ping IDs are allowed to wrap, but stream IDs aren't)
-	return session.lastStreamIdOut + 2
+	if session.lastStreamIdOut >= 0xffffffff - 1 {
+		return 0, errors.New("Can't allocate new streams: uint32 overflow")
+	}
+	return session.lastStreamIdOut + 2, nil
 }
 
-func (session *Session) nextIdIn() uint32 {
+func (session *Session) nextIdIn() (uint32, error) {
 	if session.lastStreamIdIn == 0 {
 		if session.Server {
-			return 1
+			return 1, nil
 		} else {
-			return 2
+			return 2, nil
 		}
 	}
-	return session.lastStreamIdIn + 2
+	if session.lastStreamIdIn + 2 > 0xffffffff {
+		return 0, errors.New("Can't allocate new streams: uint32 overflow")
+	}
+	return session.lastStreamIdIn + 2, nil
 }
 
 /*
@@ -109,7 +113,10 @@ func (session *Session) nextIdIn() uint32 {
 */
 
 func (session *Session) OpenStream() (*Stream, error) {
-	newId := session.nextIdOut()
+	newId, err := session.nextIdOut()
+	if err != nil {
+		return nil, err
+	}
 	if stream, err := session.newStream(newId, true); err != nil {
 		return nil, err
 	} else {
@@ -155,12 +162,22 @@ func (session *Session) newStream(id uint32, local bool) (*Stream, error) {
 func (session *Session) streamIdIsValid(id uint32, local bool) bool {
 	/* Is this ID valid? */
 	if local {
-		if !session.isLocalId(id) || id != session.nextIdOut() {
+		if !session.isLocalId(id) {
 			return false
 		}
+		if nextId, err := session.nextIdOut(); err == nil {
+			if id < nextId {
+				return false
+			}
+		}
 	} else {
-		if session.isLocalId(id) || id != session.nextIdIn() {
+		if session.isLocalId(id) {
 			return false
+		}
+		if nextId, err := session.nextIdIn(); err == nil {
+			if id < nextId {
+				return false
+			}
 		}
 	}
 	return true
