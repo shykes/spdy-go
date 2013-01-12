@@ -251,7 +251,7 @@ func (p *StreamPipeWriter) WriteFrame(frame Frame) error {
 		}
 		return &RstError{StreamAlreadyClosed, Error{StreamClosed, p.id}}
 	}
-	if frame.GetStreamId() != p.id {
+	if id, exists := frame.GetStreamId(); !exists || id != p.id {
 		return errors.New("Wrong stream ID")
 	}
 	switch frame.(type) {

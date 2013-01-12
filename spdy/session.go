@@ -160,6 +160,9 @@ func (session *Session) newStream(id uint32, local bool) (*Stream, error) {
 }
 
 func (session *Session) streamIdIsValid(id uint32, local bool) bool {
+	if id == 0 {
+	    return false
+	}
 	/* Is this ID valid? */
 	if local {
 		if !session.isLocalId(id) {
@@ -210,7 +213,7 @@ func (session *Session) ReadFrame() (Frame, error) {
 func (session *Session) WriteFrame(frame Frame) error {
 	debug("Received frame: %#v", frame)
 	/* Is this frame stream-specific? */
-	if streamId := frame.GetStreamId(); streamId != 0 {
+	if streamId, exists := frame.GetStreamId(); exists {
 		/* SYN_STREAM frame: create the stream */
 		if _, ok := frame.(*SynStreamFrame); ok {
 			if stream, err := session.newStream(streamId, false); err != nil {
@@ -264,6 +267,9 @@ func (session *Session) Serve(peer ReadWriter) error {
  * (eg. even-numbered if we're the server, odd-numbered if we're the client)
  */
 func (session *Session) isLocalId(id uint32) bool {
+	if id == 0 {
+	    return false
+	}
 	if session.Server {
 		return (id%2 == 0) /* Return true if id is even */
 	}

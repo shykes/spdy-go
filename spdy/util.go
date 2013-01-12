@@ -16,15 +16,15 @@ import (
 	"net/http"
 )
 
-func (frame *DataFrame)		GetStreamId() uint32	{ return frame.StreamId }
-func (frame *SynStreamFrame)	GetStreamId() uint32	{ return frame.StreamId }
-func (frame *HeadersFrame)	GetStreamId() uint32	{ return frame.StreamId }
-func (frame *SynReplyFrame)	GetStreamId() uint32	{ return frame.StreamId }
-func (frame *RstStreamFrame)	GetStreamId() uint32	{ return frame.StreamId }
-func (frame *NoopFrame)		GetStreamId() uint32	{ return 0 }
-func (frame *SettingsFrame)	GetStreamId() uint32	{ return 0 }
-func (frame *PingFrame)		GetStreamId() uint32	{ return 0 }
-func (frame *GoAwayFrame)	GetStreamId() uint32	{ return 0 }
+func (frame *DataFrame)		GetStreamId() (uint32, bool)	{ return frame.StreamId, true }
+func (frame *SynStreamFrame)	GetStreamId() (uint32, bool)	{ return frame.StreamId, true }
+func (frame *HeadersFrame)	GetStreamId() (uint32, bool)	{ return frame.StreamId, true }
+func (frame *SynReplyFrame)	GetStreamId() (uint32, bool)	{ return frame.StreamId, true }
+func (frame *RstStreamFrame)	GetStreamId() (uint32, bool)	{ return frame.StreamId, true }
+func (frame *NoopFrame)		GetStreamId() (uint32, bool)	{ return 0, false }
+func (frame *SettingsFrame)	GetStreamId() (uint32, bool)	{ return 0, false }
+func (frame *PingFrame)		GetStreamId() (uint32, bool)	{ return 0, false }
+func (frame *GoAwayFrame)	GetStreamId() (uint32, bool)	{ return 0, false }
 
 func (frame *DataFrame)		GetHeaders() *http.Header	{ return nil }
 func (frame *SynStreamFrame)	GetHeaders() *http.Header	{ return &frame.Headers}

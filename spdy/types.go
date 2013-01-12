@@ -168,7 +168,7 @@ const MaxDataLength = 1<<24 - 1
 // Framer to read and write it.
 type Frame interface {
 	write(f *Framer) error
-	GetStreamId() uint32
+	GetStreamId() (uint32, bool)
 	GetHeaders() *http.Header
 	GetFinFlag() bool
 }
