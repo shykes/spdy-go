@@ -108,11 +108,11 @@ func (session *Session) nextIdIn() (uint32, error) {
 }
 
 /*
-** OpenStream() initiates a new local stream. It does not send SYN_STREAM or
+** InitiateStream() initiates a new local stream. It does not send SYN_STREAM or
 ** any other frame. That is the responsibility of the caller. 
 */
 
-func (session *Session) OpenStream() (*Stream, error) {
+func (session *Session) InitiateStream() (*Stream, error) {
 	newId, err := session.nextIdOut()
 	if err != nil {
 		return nil, err

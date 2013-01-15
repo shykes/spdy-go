@@ -14,7 +14,7 @@ import (
 func TestServerStreamIdMustBeEven(t *testing.T) {
     s := NewSession(new(DummyHandler), true)
 	for i:=0; i<42; i+=1 {
-	    stream, err := s.OpenStream()
+	    stream, err := s.InitiateStream()
 	 if err != nil {
 	    t.Error(err)
 	}
@@ -29,7 +29,7 @@ func TestServerStreamIdMustBeEven(t *testing.T) {
 func TestClientStreamIdMustBeOdd(t *testing.T) {
     s := NewSession(new(DummyHandler), false)
 	for i:=0; i<42; i+=1 {
-	    stream, err := s.OpenStream()
+	    stream, err := s.InitiateStream()
 	 if err != nil {
 	    t.Error(err)
 	}
@@ -44,7 +44,7 @@ func TestClientStreamIdMustBeOdd(t *testing.T) {
 func TestStreamIDZeroNotValid(t *testing.T) {
     for _, isServer := range []bool{true, false} {
 	s := NewSession(new (DummyHandler), isServer)
-	    stream, err := s.OpenStream()
+	    stream, err := s.InitiateStream()
 	    if err != nil {
 		t.Error(err)
 	    }
@@ -81,7 +81,7 @@ func TestStreamIDIncrementLocal(t *testing.T) {
 		s := NewSession(new(DummyHandler), isServer)
 		var previousId uint32
 		for i:=0; i<42; i+=1 {
-			stream, err := s.OpenStream()
+			stream, err := s.InitiateStream()
 			if err != nil {
 				t.Error(err)
 			}
@@ -96,8 +96,8 @@ func TestStreamIDIncrementLocal(t *testing.T) {
 
 func TestStream2AfterStream3(t *testing.T) {
 	s := NewSession(new(DummyHandler), false)
-	s.OpenStream()
-	stream3, err := s.OpenStream(); if err != nil {
+	s.InitiateStream()
+	stream3, err := s.InitiateStream(); if err != nil {
 		t.Error(err)
 	} else {
 		if stream3.Id != 3 {
@@ -133,7 +133,7 @@ func TestIdWrap(t *testing.T) {
 		} else {
 			s.lastStreamIdOut = 0xffffffff - 1
 		}
-		_, err := s.OpenStream()
+		_, err := s.InitiateStream()
 		if err == nil {
 			t.Error("[...] when a client or server cannot create a new stream id without exceeding a 31 bit value, it MUST NOT create a new stream")
 		}
@@ -204,9 +204,9 @@ func TestSynStreamInvalidId(t *testing.T) {
 }
 
 
-func TestSessionOpenStreamServer(t *testing.T) {
+func TestSessionInitiateStreamServer(t *testing.T) {
 	session := NewTestSession(nil, true)
-	stream, err := session.OpenStream()
+	stream, err := session.InitiateStream()
 	if err != nil {
 		t.Error(err)
 	}
@@ -215,9 +215,9 @@ func TestSessionOpenStreamServer(t *testing.T) {
 	}
 }
 
-func TestSessionOpenStreamClient(t *testing.T) {
+func TestSessionInitiateStreamClient(t *testing.T) {
 	session := NewTestSession(nil, false)
-	stream, err := session.OpenStream()
+	stream, err := session.InitiateStream()
 	if err != nil {
 		t.Error(err)
 	}
@@ -232,7 +232,7 @@ func TestNStreams(t *testing.T) {
 	if session.NStreams() != 0 {
 		t.Errorf("NStreams() for empty session should be 0 (not %d)", session.NStreams())
 	}
-	session.OpenStream()
+	session.InitiateStream()
 	if session.NStreams() != 1 {
 		t.Errorf("NStreams() should be 1 (not %d)", session.NStreams())
 	}
@@ -240,7 +240,7 @@ func TestNStreams(t *testing.T) {
 
 func TestCloseStream(t *testing.T) {
 	session := NewTestSession(nil, false)
-	session.OpenStream()
+	session.InitiateStream()
 	session.CloseStream(1)
 	if session.NStreams() != 0 {
 		t.Errorf("CloseStream() did not delete the stream")
