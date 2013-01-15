@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package spdy implements SPDY protocol which is described in
+// Package spdy implements the SPDY protocol which is described in
 // draft-mbelshe-httpbis-spdy-00.
 //
 // http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00
@@ -65,19 +65,19 @@ func (session *Session) Closed() bool {
 }
 
 /*
-** Compute the ID which should be used to open the next stream
-** 
-** Per http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.3.2
-** <<
-** If the server is initiating the stream,
-**    the Stream-ID must be even.  If the client is initiating the stream,
-**    the Stream-ID must be odd. 0 is not a valid Stream-ID.  Stream-IDs
-**    from each side of the connection must increase monotonically as new
-**    streams are created.  E.g.  Stream 2 may be created after stream 3,
-**    but stream 7 must not be created after stream 9.  Stream IDs do not
-**    wrap: when a client or server cannot create a new stream id without
-**    exceeding a 31 bit value, it MUST NOT create a new stream.
-** >>
+ * Compute the ID which should be used to open the next stream
+ * 
+ * Per http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.3.2
+ * <<
+ * If the server is initiating the stream,
+ *    the Stream-ID must be even.  If the client is initiating the stream,
+ *    the Stream-ID must be odd. 0 is not a valid Stream-ID.  Stream-IDs
+ *    from each side of the connection must increase monotonically as new
+ *    streams are created.  E.g.  Stream 2 may be created after stream 3,
+ *    but stream 7 must not be created after stream 9.  Stream IDs do not
+ *    wrap: when a client or server cannot create a new stream id without
+ *    exceeding a 31 bit value, it MUST NOT create a new stream.
+ * >>
  */
 func (session *Session) nextIdOut() (uint32, error) {
 	if session.lastStreamIdOut == 0 {
