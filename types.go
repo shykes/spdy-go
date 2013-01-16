@@ -396,16 +396,6 @@ type ReadWriter interface {
 	Writer
 }
 
-type ReadCloser interface {
-	Reader
-	io.Closer
-}
-
-type WriteCloser interface {
-	Writer
-	io.Closer
-}
-
 
 // Framer handles serializing/deserializing SPDY frames, including compressing/
 // decompressing payloads.
