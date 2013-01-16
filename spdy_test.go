@@ -770,11 +770,11 @@ func SendExpect(s *Session, frameIn Frame, frameTypeOut reflect.Type) (Frame, er
 }
 
 func TestSynStreamInvalidId(t *testing.T) {
-	s := NewTestSession(nil, true)
-	if err := s.pipe.WriteFrame(&SynStreamFrame{StreamId: 2}); err != nil {
+	s := NewSession(new(DummyHandler), true)
+	if err := s.WriteFrame(&SynStreamFrame{StreamId: 2}); err != nil {
 		t.Error(err)
 	}
-	frame, err := s.pipe.ReadFrame()
+	frame, err := s.ReadFrame()
 	if err != nil {
 		t.Error("Session didn't send protocol error on invalid stream id")
 		return
@@ -791,7 +791,7 @@ func TestSynStreamInvalidId(t *testing.T) {
 
 
 func TestSessionInitiateStreamServer(t *testing.T) {
-	session := NewTestSession(nil, true)
+	session := NewSession(new(DummyHandler), true)
 	stream, err := session.InitiateStream()
 	if err != nil {
 		t.Error(err)
@@ -802,7 +802,7 @@ func TestSessionInitiateStreamServer(t *testing.T) {
 }
 
 func TestSessionInitiateStreamClient(t *testing.T) {
-	session := NewTestSession(nil, false)
+	session := NewSession(new(DummyHandler), false)
 	stream, err := session.InitiateStream()
 	if err != nil {
 		t.Error(err)
@@ -814,7 +814,7 @@ func TestSessionInitiateStreamClient(t *testing.T) {
 
 
 func TestNStreams(t *testing.T) {
-	session := NewTestSession(nil, true)
+	session := NewSession(new(DummyHandler), true)
 	if session.NStreams() != 0 {
 		t.Errorf("NStreams() for empty session should be 0 (not %d)", session.NStreams())
 	}
@@ -825,7 +825,7 @@ func TestNStreams(t *testing.T) {
 }
 
 func TestCloseStream(t *testing.T) {
-	session := NewTestSession(nil, false)
+	session := NewSession(new(DummyHandler), false)
 	session.InitiateStream()
 	session.CloseStream(1)
 	if session.NStreams() != 0 {
