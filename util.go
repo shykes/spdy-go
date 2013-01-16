@@ -74,12 +74,21 @@ func debug(msg string, args ...interface{}) {
 }
 
 
+// DummyHandler is an http.Handler which does nothing.
 type DummyHandler struct {}
 
 func (f *DummyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 
+// Copy copies from src to dst until either EOF is reached on src or an
+// error occurs. It returns the first error encountered while copying, if any.
+//
+// A successful Copy returns err == nil, not err == EOF. Because Copy is
+// defined to read from src until EOF, it does not treat an EOF from Read
+// as an error to be reported.
+//
+// As a special case, if w is nil, all frames will be discarded.
 func Copy(w Writer, r Reader) error {
 	for {
 		frame, err := r.ReadFrame()
@@ -100,6 +109,12 @@ func Copy(w Writer, r Reader) error {
 	return nil
 }
 
+// CopyBytes reads frames from src, extracts payload data
+// when it exists, and writes it to dst. It does so until either
+// EOF is reached on src or an error occurs. It returns the first error encountered
+// while copying, if any.
+//
+// Frames without a payload (eg. every frame not of type DATA) are discarded.
 func CopyBytes(dst io.Writer, src Reader) error {
 	for {
 		frame, err := src.ReadFrame()
@@ -119,6 +134,15 @@ func CopyBytes(dst io.Writer, src Reader) error {
 	return nil
 }
 
+// Splice runs Copy(a, b) and Copy(b, a) in 2 distinct goroutines then waits for
+// either one or both copies to complete, depending on the value of wait.
+//
+// - If wait=true, Splice waits for both copies to complete and returns the first error
+// encountered, if any. If both copies end with an error, it is undetermined which error
+// is returned.
+//
+// - If wait=false, Splice waits for one copy to complete and returns the first error
+// encountered during that copy, if any. The other copy continues in the background.
 func Splice(a ReadWriter, b ReadWriter, wait bool) error {
 	Ab, Ba := func() error {return Copy(a, b)}, func() error {return Copy(b, a)}
 	promiseAb, promiseBa := Promise(Ab), Promise(Ba)
@@ -163,11 +187,7 @@ func Split(src Reader, data Writer, headers Writer, control Writer) error {
 }
 
 
-
-/*
-** Add the contents of `newHeaders` to `headers`
- */
-
+// UpdateHeaders appends the contents of newHeaders to headers.
 func UpdateHeaders(headers *http.Header, newHeaders *http.Header) {
 	for key, values := range *newHeaders {
 		for _, value := range values {

@@ -168,8 +168,12 @@ const MaxDataLength = 1<<24 - 1
 // Framer to read and write it.
 type Frame interface {
 	write(f *Framer) error
+	// Return the Stream-ID of the frame if applicable,
+	// and a bool to indicate whether a Stream-ID exists.
 	GetStreamId() (uint32, bool)
+	// Return the headers of the frame if applicable, or nil otherwise.
 	GetHeaders() *http.Header
+	// Returns whether the FIN flag is set for this frame.
 	GetFinFlag() bool
 }
 
@@ -366,14 +370,27 @@ var invalidRespHeaders = map[string]bool{
 	"Transfer-Encoding": true,
 }
 
+// Reader is the interface that wraps the basic ReadFrame method.
+//
+// ReadFrame returns the next available frame, or an error indicating
+// why the call failed. An error value of io.EOF indicates that the source
+// of frames is closed.
+//
+// If no frame is available, Read waits until there is one.
 type Reader interface {
 	ReadFrame() (Frame, error)
 }
 
+// Writer is the interface that wraps the basic WriteFrame method.
+//
+// WriteFrame writes a frame to the underlying stream. It returns nil if the
+// write is successful, or the error which caused it to fail.
 type Writer interface {
 	WriteFrame(Frame) error
 }
 
+// ReadWriter is the interface that groups the basic Read and Write
+// methods.
 type ReadWriter interface {
 	Reader
 	Writer
