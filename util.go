@@ -165,7 +165,7 @@ func Splice(a ReadWriter, b ReadWriter, wait bool) error {
 }
 
 
-func Split(src Reader, data Writer, headers Writer, control Writer) error {
+func Extract(src Reader, data io.Writer, headers chan http.Header, drain Writer) error {
 	for {
 		if frame, err := src.ReadFrame(); err == io.EOF {
 			break
@@ -173,10 +173,10 @@ func Split(src Reader, data Writer, headers Writer, control Writer) error {
 			return err
 		} else {
 			var err error
-			switch frame.(type) {
-				case *DataFrame:	err = data.WriteFrame(frame)
-				case *HeadersFrame:	if (headers != nil) { err = headers.WriteFrame(frame) }
-				default:		if (control != nil) { err = control.WriteFrame(frame) }
+			switch f := frame.(type) {
+				case *DataFrame:	if (data != nil) { _, err = data.Write(f.Data) }
+				case *HeadersFrame:	if (headers != nil) { headers<-f.Headers }
+				default:		if (drain != nil) { err = drain.WriteFrame(frame) }
 			}
 			if err != nil {
 				return err
@@ -184,6 +184,10 @@ func Split(src Reader, data Writer, headers Writer, control Writer) error {
 		}
 	}
 	return nil
+}
+
+func ExtractData(src Reader, data io.Writer) error {
+	return Extract(src, data, nil, nil)
 }
 
 

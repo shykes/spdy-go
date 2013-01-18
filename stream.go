@@ -183,7 +183,7 @@ func (stream *Stream) Serve(handler http.Handler) {
 		return
 	}
 	w := &ResponseWriter{Stream: stream}
-	r, err := stream.ParseHTTPRequest(nil);
+	r, err := stream.ParseHTTPRequest();
 	if err != nil {
 		// FIXME: send error
 		stream.debug("Error parsing http request: %s\n", err)
@@ -199,7 +199,7 @@ func (stream *Stream) Serve(handler http.Handler) {
 	stream.debug("Done cleaning up")
 }
 
-func (s *Stream) ParseHTTPRequest(drain Writer) (*http.Request, error) {
+func (s *Stream) ParseHTTPRequest() (*http.Request, error) {
 	if s.input.NFrames > 0 {
 		return nil, errors.New("Can't parse HTTP request: first SPDY frame already read")
 	}
@@ -220,8 +220,7 @@ func (s *Stream) ParseHTTPRequest(drain Writer) (*http.Request, error) {
 	s.debug("path = %s", (*headers)["url"])
 	bodyReader, bodyWriter := io.Pipe()
 	go func() {
-		Split(s, &DataWriter{bodyWriter}, drain, drain)
-		s.debug("Closing request body")
+		ExtractData(s, bodyWriter)
 		bodyWriter.Close()
 	}()
 	r, err := http.NewRequest(method, path, bodyReader)

@@ -19,6 +19,28 @@ import (
 	"time"
 )
 
+
+func TestParseHTTP(t *testing.T) {
+	stream, peer  := NewStream(42, false)
+	if err := peer.WriteFrame(&SynStreamFrame{StreamId: 42}); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.WriteFrame(&DataFrame{Data: []byte("hello world\n"), StreamId: 42}); err != nil {
+		t.Fatal(err)
+	}
+	req, err := stream.ParseHTTPRequest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := make([]byte, 5)
+	if _, err := req.Body.Read(data); err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("'%s' != 'hello'", data)
+	}
+}
+
 func TestHeaderParsing(t *testing.T) {
 	headers := http.Header{
 		"Url":     []string{"http://www.google.com/"},
