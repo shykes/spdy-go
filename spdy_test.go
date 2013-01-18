@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 func TestHeaderParsing(t *testing.T) {
@@ -730,43 +731,48 @@ func TestIdWrap(t *testing.T) {
 	}
 }
 
-func SendExpect(s *Session, frameIn Frame, frameTypeOut reflect.Type) (Frame, error) {
-	if err := s.WriteFrame(&PingFrame{Id:42}); err != nil {
-		return nil, err
-	}
+func SendExpect(s ReadWriter, frameIn Frame, frameTypeOut reflect.Type) (Frame, error) {
 	if err := s.WriteFrame(frameIn); err != nil {
-		return nil, err
+		return nil, errors.New("Error writing frame: " + err.Error())
 	}
-	frame, err := s.ReadFrame()
+	frame, err := ReadFrameTimeout(s)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("Error reading frame: " + err.Error())
 	}
-	var receivedNothing bool
-	switch ff := frame.(type) {
-		case *PingFrame: {
-			if ff.Id == 42 {
-				receivedNothing = true
-			}
-		}
-	}
-	if receivedNothing {
+	if frame == nil {
 		if frameTypeOut != nil {
-			// Expected something but received nothing", frameTypeOut)
+			return nil, errors.New(fmt.Sprintf("Expected %v but received nothing", frameTypeOut))
 		}
 	} else {
 		if frameTypeOut == nil {
 			// Expected nothing but received something
-			return nil, errors.New(fmt.Sprintf("Expected nothing but received %#v", frame))
+			return nil, errors.New(fmt.Sprintf("Expected nothing but received %T", frame))
 		} else if frameTypeOut != reflect.TypeOf(frame) {
 			return nil, errors.New("Received wrong frame type")
 		}
 	}
-	if frameTypeOut != nil {
-		if _, err := s.ReadFrame(); err != nil {
-			return nil, err
-		}
-	}
 	return frame, nil
+}
+
+func ReadFrameTimeout(src Reader) (Frame, error) {
+	debug("ReadFrameTimeout...")
+	ch_f := make(chan Frame, 1)
+	ch_e := make(chan error, 1)
+	go func() {
+		f, err := src.ReadFrame()
+		if err != nil {
+			ch_e <- err
+		} else {
+			ch_f <- f
+		}
+	}()
+	select {
+		case frame := <-ch_f: return frame, nil
+		case err := <-ch_e: return nil, err
+		case <-time.After(300 * time.Millisecond):
+	}
+	debug("ReadFrameTimeout -> TIMEOUT")
+	return nil, nil
 }
 
 func TestSynStreamInvalidId(t *testing.T) {
