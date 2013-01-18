@@ -700,7 +700,7 @@ func TestStream2AfterStream3(t *testing.T) {
 
 func TestStream7AfterStream9(t *testing.T) {
 	s := NewSession(new(DummyHandler), true)
-	if _, err := SendExpect(s, &SynStreamFrame{StreamId:9}, nil); err != nil {
+	if err := s.WriteFrame(&SynStreamFrame{StreamId:9}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SendExpect(s, &SynStreamFrame{StreamId:7}, reflect.TypeOf(&RstStreamFrame{})); err != nil {
@@ -1071,3 +1071,35 @@ func TestCloseReader(t *testing.T) {
 		t.Errorf("ReadFrame() on a closed pipe reader returned (%#v, %#v) instead of (nil, ErrClosedPipe)", frame, err)
 	}
 }
+
+//	[...] The stream-id MUST increase with each new stream.  If an endpoint
+//	receives a SYN_STREAM with a stream id which is less than any
+//	previously received SYN_STREAM, it MUST issue a session error
+//	(Section 2.4.1) with the status PROTOCOL_ERROR. [...]
+
+func TestSynTooLow(t *testing.T) {
+	s := NewSession(new(DummyHandler), true)
+	if err := s.WriteFrame(&SynStreamFrame{StreamId: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SendExpect(s, &SynStreamFrame{StreamId: 0}, reflect.TypeOf(&RstStreamFrame{})); err != nil {
+		t.Fatal(err)
+	}
+}
+
+
+//	[...] An endpoint MUST NOT send a RST_STREAM in response to an RST_STREAM,
+//	as doing so would lead to RST_STREAM loops [...]
+
+func TestRstLoop(t *testing.T) {
+	s := NewSession(new(DummyHandler), true)
+	if _, err := s.InitiateStream(); err != nil {
+		t.Fatal(err)
+	}
+	rstFrame := &RstStreamFrame{StreamId: 2, Status: RefusedStream}
+	_, err := SendExpect(s, rstFrame, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+

@@ -22,9 +22,10 @@ import (
 */
 
 type Stream struct {
-	Id      	uint32
+	Id		uint32
 	input		*StreamPipeReader
 	output		*StreamPipeWriter
+	errors		[]*Error
 	local		bool	// Was this stream created locally?
 	sendErrors	bool
 	Closed		bool
@@ -42,6 +43,12 @@ func NewStream(id uint32, local bool) (*Stream, *Stream) {
 }
 
 func (s *Stream) ReadFrame() (Frame, error) {
+	// Inject errors, if any
+	if len(s.errors) > 0 {
+		err := s.errors[len(s.errors) - 1]
+		s.errors = s.errors[:len(s.errors) - 1]
+		return err.ToFrame(), nil
+	}
 	frame, err := s.input.ReadFrame()
 	if err != nil {
 		return nil, err
@@ -61,11 +68,19 @@ func (s *Stream) WriteFrame(frame Frame) error {
 	s.debug("Passing %#v", frame)
 	err := s.output.WriteFrame(frame)
 	if err != nil {
-		if rstErr, isRstErr := err.(*RstError); isRstErr && s.sendErrors {
-			s.debug("Sending error: %#v", rstErr)
-			s.Rst(rstErr.Status)
+		// Send err as an RST_FRAME if possible and if sendErrors=true
+		if e, sendable := err.(*Error); sendable && s.sendErrors {
+			// [...] An endpoint MUST NOT send a RST_STREAM in
+			// response to an RST_STREAM, as doing so would lead to RST_STREAM
+			// loops [...]
+			if _, receivedRst := frame.(*RstStreamFrame); !receivedRst {
+				s.debug("Sending error (%s) as RST_STREAM frame", e)
+				s.errors = append(s.errors, e)
+			}
 			return nil
 		}
+		// Otherwise just pass the error
+		s.debug("Error %s is not sendable. Returning", err)
 		return err
 	}
 	if _, isRst := frame.(*RstStreamFrame); isRst {
@@ -239,39 +254,30 @@ type StreamPipeWriter struct {
 
 func (p *StreamPipeWriter) WriteFrame(frame Frame) error {
 	if p.closed {
-		/*
-		 *                      "An endpoint MUST NOT send a RST_STREAM in
-		 * response to an RST_STREAM, as doing so would lead to RST_STREAM
-		 * loops."
-		 *
-		 * (http://tools.ietf.org/html/draft-mbelshe-httpbis-spdy-00#section-2.4.2)
-		 */
-		if _, isRst := frame.(*RstStreamFrame); isRst {
-			return &Error{StreamClosed, p.id}
-		}
-		return &RstError{StreamAlreadyClosed, Error{StreamClosed, p.id}}
+		return &Error{StreamClosed, p.id}
 	}
 	if id, exists := frame.GetStreamId(); !exists || id != p.id {
 		return errors.New("Wrong stream ID")
 	}
+	// Check for the correct sequence of frames
 	switch frame.(type) {
+		// SYN_STREAM is only allowed as the first frame and if reply=false
 		case *SynStreamFrame: {
 			if p.NFrames > 0 || p.reply {
-				return &RstError{ProtocolError, Error{IllegalSynStream, p.id}}
+				return &Error{IllegalSynStream, p.id}
 			}
 		}
+		// SYN_REPLY is only allowed as the first frame and  if reply=true
 		case *SynReplyFrame: {
 			if p.NFrames > 0 || !p.reply {
-				return &RstError{ProtocolError, Error{IllegalSynReply, p.id}}
+				return &Error{IllegalSynReply, p.id}
 			}
 		}
-		case *HeadersFrame, *DataFrame: {
-			if p.NFrames == 0 {
-				return &RstError{ProtocolError, Error{IllegalFirstFrame, p.id}}
-			}
-		}
+		// Any other frames are forbidden as the first frame
 		default: {
-			return &Error{UnknownFrameType, p.id}
+			if p.NFrames == 0 {
+				return &Error{IllegalFirstFrame, p.id}
+			}
 		}
 	}
 	if err := p.PipeWriter.WriteFrame(frame); err != nil {

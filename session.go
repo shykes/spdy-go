@@ -135,7 +135,7 @@ func (session *Session) InitiateStream() (*Stream, error) {
 func (session *Session) newStream(id uint32, local bool) (*Stream, error) {
 	/* If the ID is valid, register the stream. Otherwise, send a protocol error */
 	if !session.streamIdIsValid(id, local) {
-		return nil, &RstError{ProtocolError, Error{InvalidStreamId, id}}
+		return nil, &Error{InvalidStreamId, id}
 	}
 	stream, streamPeer := NewStream(id, local)
 	session.streams[id] = streamPeer
@@ -217,8 +217,10 @@ func (session *Session) WriteFrame(frame Frame) error {
 		/* SYN_STREAM frame: create the stream */
 		if _, ok := frame.(*SynStreamFrame); ok {
 			if stream, err := session.newStream(streamId, false); err != nil {
-				if rstErr, isRstErr := err.(*RstError); isRstErr {
-					session.outputW.WriteFrame(&RstStreamFrame{StreamId: streamId, Status: rstErr.Status})
+				if e, sendable := err.(*Error); sendable {
+					if err := session.outputW.WriteFrame(e.ToFrame()); err != nil {
+						return err
+					}
 					return nil
 				} else {
 					return err

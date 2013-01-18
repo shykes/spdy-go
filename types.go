@@ -13,7 +13,6 @@ import (
 	"compress/zlib"
 	"io"
 	"net/http"
-	"fmt"
 )
 
 type Handler http.Handler
@@ -322,7 +321,6 @@ const (
 	UnlowercasedHeaderName     ErrorCode = "header was not lowercased"
 	DuplicateHeaders           ErrorCode = "multiple headers with same name"
 	WrongCompressedPayloadSize ErrorCode = "compressed payload size was incorrect"
-	UnknownFrameType           ErrorCode = "unknown frame type"
 	InvalidControlFrame        ErrorCode = "invalid control frame"
 	InvalidDataFrame           ErrorCode = "invalid data frame"
 	InvalidHeaderPresent       ErrorCode = "frame contained invalid header"
@@ -346,16 +344,17 @@ func (e *Error) Error() string {
 	return string(e.Err)
 }
 
-// RstError is an error which can be sent as an RST_STREAM frame
-type RstError struct {
-	Status StatusCode
-	Err	Error
+// Return a RST_STREAM frame containing a description of the error
+func (e *Error) ToFrame() *RstStreamFrame {
+	var status StatusCode
+	switch e.Err {
+		case StreamClosed:
+			status = StreamAlreadyClosed
+		default:
+			status = ProtocolError
+	}
+	return &RstStreamFrame{StreamId: e.StreamId, Status: status}
 }
-
-func (e *RstError) Error() string {
-	return fmt.Sprintf("%#v: %s", e.Status, e.Err.Error())
-}
-
 
 var invalidReqHeaders = map[string]bool{
 	"Connection":        true,
